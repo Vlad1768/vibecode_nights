@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Название — питч</title>
+<!-- Шрифты как в продукте (docs/DESIGN.md). Без интернета сработает системный запасной шрифт. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  /* ==== Токены: перенеси из docs/DESIGN.md ==== */
+  :root {
+    --bg: #FAFAF9; --fg: #17171A; --muted: #6E6E76; --card: #FFFFFF; --border: #E6E6E3;
+    --accent: #FF5A1F; --accent-soft: #FFF0E8;
+    --font: "Manrope", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: #111; }
+  body { font-family: var(--font); color: var(--fg); overflow: hidden; }
+  .deck { position: fixed; inset: 0; display: grid; place-items: center; }
+  /* Холст 1280×720, масштабируется под окно */
+  .slide { position: absolute; width: 1280px; height: 720px; background: var(--bg); padding: 72px 88px;
+           display: flex; flex-direction: column; justify-content: center; gap: 28px;
+           transform-origin: center; opacity: 0; pointer-events: none; transition: opacity .25s ease; }
+  .slide.active { opacity: 1; pointer-events: auto; }
+  .kicker { font-family: var(--mono); font-size: 18px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+  h1 { font-size: 88px; line-height: 1.02; font-weight: 800; letter-spacing: -.03em; }
+  h2 { font-size: 60px; line-height: 1.08; font-weight: 800; letter-spacing: -.02em; }
+  p.lead { font-size: 30px; line-height: 1.35; color: var(--muted); max-width: 980px; }
+  .accent { color: var(--accent); }
+  .big { font-family: var(--mono); font-size: 168px; line-height: 1; font-weight: 500; color: var(--accent); letter-spacing: -.04em; }
+  .row { display: grid; grid-template-columns: repeat(var(--n, 3), 1fr); gap: 28px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 32px; }
+  .card b { display: block; font-size: 28px; margin-bottom: 10px; }
+  .card span { font-size: 22px; color: var(--muted); line-height: 1.4; }
+  .num { font-family: var(--mono); font-size: 64px; color: var(--accent); display: block; margin-bottom: 6px; }
+  .shot { flex: 1; min-height: 0; border-radius: 18px; border: 1px solid var(--border); overflow: hidden;
+          background: var(--card) center top / cover no-repeat; box-shadow: 0 24px 60px rgb(0 0 0 / .12); }
+  .split { display: grid; grid-template-columns: 1fr 1.25fr; gap: 48px; align-items: center; height: 100%; }
+  .split .shot { height: 100%; }
+  .center { align-items: center; text-align: center; }
+  .qr { width: 260px; height: 260px; border-radius: 16px; background: #fff center / contain no-repeat; border: 1px solid var(--border); }
+  .footer { position: absolute; left: 88px; right: 88px; bottom: 32px; display: flex; justify-content: space-between;
+            font-family: var(--mono); font-size: 14px; color: var(--muted); }
+  .progress { position: fixed; left: 0; bottom: 0; height: 4px; background: var(--accent); transition: width .25s ease; z-index: 2; }
+  @media print {
+    html, body { background: none; overflow: visible; }
+    .deck { position: static; display: block; }
+    .slide { position: relative; opacity: 1; transform: none !important; page-break-after: always; break-after: page; }
+    .progress { display: none; }
+    @page { size: 1280px 720px; margin: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="deck">
+
+  <!-- 1. Титул: имя + обещание -->
+  <section class="slide">
+    <div class="kicker">Команда · Хакатон 2026</div>
+    <h1>Название<br><span class="accent">одна фраза ценности</span></h1>
+    <p class="lead">Для кого и что получает — одной строкой.</p>
+  </section>
+
+  <!-- 2. Боль: история или цифра -->
+  <section class="slide">
+    <div class="kicker">Проблема</div>
+    <div class="big">2 часа</div>
+    <h2>уходит у менеджера на то, что можно сделать за минуту</h2>
+    <p class="lead">Конкретная персона, конкретная ситуация. Источник цифры — мелко внизу.</p>
+  </section>
+
+  <!-- 3. Решение -->
+  <section class="slide">
+    <div class="kicker">Решение</div>
+    <h2>Название делает <span class="accent">X</span>, чтобы пользователь получил <span class="accent">Y</span></h2>
+    <div class="row">
+      <div class="card"><span class="num">01</span><b>Загружает</b><span>что даёт пользователь</span></div>
+      <div class="card"><span class="num">02</span><b>Понимает</b><span>что делает AI</span></div>
+      <div class="card"><span class="num">03</span><b>Выдаёт</b><span>готовый результат</span></div>
+    </div>
+  </section>
+
+  <!-- 4. Демо: живой показ (здесь переключаемся в браузер), скриншот — страховка -->
+  <section class="slide">
+    <div class="split">
+      <div style="display:flex;flex-direction:column;gap:24px">
+        <div class="kicker">Демо</div>
+        <h2>Покажем вживую</h2>
+        <p class="lead">Ссылка: <span class="accent">название.vercel.app</span></p>
+      </div>
+      <div class="shot" style="background-image:url('shots/hero.png')"></div>
+    </div>
+  </section>
+
+  <!-- 5. Как устроено -->
+  <section class="slide">
+    <div class="kicker">Как это работает</div>
+    <h2>Под капотом</h2>
+    <div class="row" style="--n:4">
+      <div class="card"><b>Интерфейс</b><span>Next.js, адаптив</span></div>
+      <div class="card"><b>Данные</b><span>откуда и какие</span></div>
+      <div class="card"><b>AI</b><span>Claude: что именно делает модель</span></div>
+      <div class="card"><b>Надёжность</b><span>демо-режим, фолбэки</span></div>
+    </div>
+  </section>
+
+  <!-- 6. Эффект и бизнес -->
+  <section class="slide">
+    <div class="kicker">Эффект</div>
+    <div class="row">
+      <div class="card"><span class="num">−80%</span><b>времени</b><span>на задачу X</span></div>
+      <div class="card"><span class="num">12 ч</span><b>в неделю</b><span>экономит один сотрудник</span></div>
+      <div class="card"><span class="num">₽</span><b>модель денег</b><span>подписка / за использование</span></div>
+    </div>
+    <p class="lead">Следующие шаги: интеграция с …, пилот с …</p>
+  </section>
+
+  <!-- 7. Финал: QR и команда -->
+  <section class="slide center">
+    <h2>Название — <span class="accent">попробуйте сами</span></h2>
+    <div class="qr" style="background-image:url('qr.png')"></div>
+    <p class="lead">Имя · Имя · Имя · Имя · Имя</p>
+  </section>
+
+</div>
+<div class="progress"></div>
+<script>
+  const slides = [...document.querySelectorAll(".slide")];
+  const bar = document.querySelector(".progress");
+  let i = Math.max(0, Math.min(slides.length - 1, (parseInt(location.hash.slice(1)) || 1) - 1));
+  slides.forEach((s, k) => {
+    const f = document.createElement("div");
+    f.className = "footer";
+    f.innerHTML = `<span>${document.title.split(" — ")[0]}</span><span>${k + 1} / ${slides.length}</span>`;
+    s.appendChild(f);
+  });
+  function fit() {
+    const k = Math.min(innerWidth / 1280, innerHeight / 720);
+    slides.forEach((s) => (s.style.transform = `scale(${k})`));
+  }
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle("active", k === i));
+    bar.style.width = `${((i + 1) / slides.length) * 100}%`;
+    history.replaceState(null, "", `#${i + 1}`);
+  }
+  addEventListener("keydown", (e) => {
+    if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); show(i + 1); }
+    if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); show(i - 1); }
+    if (e.key === "Home") show(0);
+    if (e.key === "End") show(slides.length - 1);
+    if (e.key === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  });
+  addEventListener("click", (e) => show(e.clientX > innerWidth / 3 ? i + 1 : i - 1));
+  addEventListener("resize", fit);
+  fit(); show(i);
+</script>
+</body>
+</html>

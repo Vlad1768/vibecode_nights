@@ -17,4 +17,5 @@
 
 Сюда коротко пишем всё, что меняет договорённости: новая зависимость, поменялся формат данных, переименовали папку.
 
+- Подготовка: добавлены скиллы `.claude/skills/` (копия для Codex — `.agents/skills/`, `AGENTS.md`), скрипты `scripts/tasks.sh`, `scripts/shot.mjs`, `scripts/sync-agents-skills.sh`, `.gitattributes` (LF, чтобы bash-скрипты работали в Git Bash), `.gitignore`. В `CLAUDE.md` добавлен раздел «Скиллы и скрипты», правила не менялись. Пример общих разрешений — `docs/claude-settings.example.json`.
 - …
