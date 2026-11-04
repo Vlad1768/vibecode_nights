@@ -22,14 +22,22 @@ npx -y shadcn@latest add button card input textarea badge dialog tabs sonner ske
 
 # 4. AI и схемы (если в продукте есть AI)
 npm i @anthropic-ai/sdk zod
+
+# 5. Если шаг 3 (shadcn) упал: минимальный набор вместо него
+npm i sonner lucide-react clsx tailwind-merge
 ```
+Команды в фоне могут «упасть тихо», а цепочка всё равно завершится с кодом 0: так бывает, например, при ECONNRESET от npm. Поэтому после установки проверь лог и наличие `web/node_modules/.bin/next`. Если чего-то нет, повтори `npm install`.
 
 ### Обязательные правки после каркаса (проверено: без них сборка падает)
-1. **`web/next.config.ts`**: поставь `cacheComponents: false` и удали строку `partialPrefetching: true`. Шаблон включает Cache Components, а в этом режиме любой `new Date()` или `Date.now()` в серверном компоненте роняет `npm run build` с ошибкой «unstable value … while prerendering». Кроме того, тогда запрещены `export const dynamic` и `export const runtime`. Для хакатона это лишние грабли.
+1. **`web/next.config.ts`**: поставь `cacheComponents: false`, удали строку `partialPrefetching: true` и добавь `devIndicators: false` (иначе значок «N» попадает на скриншоты и в демо). Шаблон включает Cache Components, а в этом режиме любой `new Date()` или `Date.now()` в серверном компоненте роняет `npm run build` с ошибкой «unstable value … while prerendering». Кроме того, тогда запрещены `export const dynamic` и `export const runtime`. Для хакатона это лишние грабли.
 2. **`web/src/app/layout.tsx`**: `lang="ru"`, у шрифтов `subsets: ["latin", "cyrillic"]`. Без `cyrillic` русский текст рисуется запасным шрифтом. Также поменяй `metadata`.
-3. **`web/src/app/globals.css`**: шаблон задаёт `body { font-family: Arial, Helvetica, sans-serif; }`, и этот шрифт перебивает подключённые. Подключи шрифты и токены по готовому рецепту из `.claude/skills/polish/directions.md`, раздел «Как подключить» (проверен скриншотом).
-4. Удали демо-содержимое `page.tsx` и `public/*.svg`.
-5. После `shadcn init` загляни в `web/components.json` и в `src/components/ui/`. Перед использованием компонента прочитай его файл: в новых версиях по умолчанию база Base UI, где вместо `asChild` используется проп `render`.
+3. **`web/src/app/globals.css`**: в шаблоне `body { font-family: Arial… }` перебивает подключённые шрифты, а блок `@media (prefers-color-scheme: dark)` перекрашивает всё на компьютерах с тёмной темой.
+   - **Без shadcn**: замени файл целиком на `.claude/skills/kickoff/templates/globals.css` и подставь в `:root` токены своего направления. В шаблоне уже зарегистрированы все цвета (`bg-primary`, `text-accent-foreground`, `bg-success/10`…) и радиусы (`rounded-lg` = `--radius`).
+   - **С shadcn**: он переписывает файл сам. Замени значения в `:root` токенами направления, удали `.dark` и `@media (prefers-color-scheme: dark)`, если остались, и добавь шрифтовую часть из `.claude/skills/polish/directions.md` («Как подключить»).
+4. **`web/.gitignore`**: шаблон игнорирует `.env*`, то есть и `.env.example`. Выполни `printf '!.env.example\n' >> web/.gitignore`, иначе у команды не сработает `cp .env.example .env.local`.
+5. Удали демо-содержимое `page.tsx` и `public/*.svg`.
+6. **Если shadcn не встал**: скопируй `.claude/skills/kickoff/templates/utils.ts` → `web/src/lib/utils.ts` и `.claude/skills/kickoff/templates/ui/*.tsx` → `web/src/components/ui/` (Button, Card, Badge; проверены сборкой и линтом). Тосты — `sonner` (`<Toaster />` в layout, `toast("…")` в коде), иконки — `lucide-react`. Остальные компоненты (Input, Dialog, Tabs) пишут задачи в своих папках или ведущий в `components/ui/`. Запиши это в «Журнал решений».
+7. После `shadcn init` загляни в `web/components.json` и в `src/components/ui/`. Перед использованием компонента прочитай его файл: в новых версиях по умолчанию база Base UI, где вместо `asChild` используется проп `render`.
 
 ### Зоны (кто что правит)
 ```

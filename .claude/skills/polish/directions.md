@@ -13,7 +13,9 @@ const code = JetBrains_Mono({ subsets: ["latin", "cyrillic"], variable: "--font-
 // <html lang="ru" className={`${body.variable} ${display.variable} ${code.variable} h-full antialiased`}>
 ```
 
-`web/src/app/globals.css`: значения переменных в `:root` из блока направления. Если shadcn уже создал `:root` и `.dark`, замени значения в `:root` и удали блок `.dark`. Затем добавь:
+`web/src/app/globals.css`:
+- **Без shadcn** возьми готовый полный файл `.claude/skills/kickoff/templates/globals.css` (все цвета и радиусы уже зарегистрированы) и замени в нём `:root` блоком своего направления. Ниже можно не читать.
+- **С shadcn** замени значения в `:root` блоком направления, удали `.dark` и `@media (prefers-color-scheme: dark)`, если остались, и добавь:
 ```css
 @theme inline {
   --font-sans: var(--font-body);
@@ -24,7 +26,7 @@ body { font-family: var(--font-body), system-ui, sans-serif; background: var(--b
 h1, h2, h3 { font-family: var(--font-display), var(--font-body), sans-serif; letter-spacing: -0.02em; }
 .tabular { font-variant-numeric: tabular-nums; }
 ```
-Если shadcn не подключён, добавь в `@theme inline` ещё `--color-background: var(--background); --color-foreground: var(--foreground); --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground); --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground); --color-accent: var(--accent); --color-border: var(--border); --color-card: var(--card);`. Тогда заработают классы `bg-primary`, `text-muted-foreground` и т.д.
+С shadcn зарегистрируй ещё статусные цвета: `--color-success: var(--success); --color-warning: var(--warning);` в `@theme inline`, тогда заработают `text-success` и `bg-warning/10`.
 
 ---
 
@@ -40,7 +42,7 @@ h1, h2, h3 { font-family: var(--font-display), var(--font-body), sans-serif; let
   --secondary: #F2F2F0; --secondary-foreground: #17171A;
   --muted: #F2F2F0; --muted-foreground: #6E6E76;
   --accent: #FFF0E8; --accent-foreground: #9A3412;
-  --destructive: #DC2626;
+  --destructive: #DC2626; --success: #15803D; --warning: #B45309;
   --border: #E6E6E3; --input: #E6E6E3; --ring: #FF5A1F;
   --radius: 0.75rem;
 }
@@ -59,7 +61,7 @@ h1, h2, h3 { font-family: var(--font-display), var(--font-body), sans-serif; let
   --secondary: #EDE6DA; --secondary-foreground: #1F1B16;
   --muted: #EDE6DA; --muted-foreground: #6B6257;
   --accent: #DCE8E2; --accent-foreground: #2F5D50;
-  --destructive: #B42318;
+  --destructive: #B42318; --success: #2F5D50; --warning: #B7791F;
   --border: #E2D9CB; --input: #E2D9CB; --ring: #B4532A;
   --radius: 0.875rem;
 }
@@ -78,7 +80,7 @@ h1, h2, h3 { font-family: var(--font-display), var(--font-body), sans-serif; let
   --secondary: #1B1F26; --secondary-foreground: #E6E8EB;
   --muted: #1B1F26; --muted-foreground: #8A93A0;
   --accent: #1E2A12; --accent-foreground: #B8FF3B;
-  --destructive: #FF5C5C;
+  --destructive: #FF5C5C; --success: #3DDC97; --warning: #FFC145;
   --border: #232832; --input: #232832; --ring: #B8FF3B;
   --radius: 0.625rem;
 }
@@ -97,7 +99,7 @@ h1, h2, h3 { font-family: var(--font-display), var(--font-body), sans-serif; let
   --secondary: #E9EEF3; --secondary-foreground: #0B1B2B;
   --muted: #E9EEF3; --muted-foreground: #5B6B7C;
   --accent: #E3F4EF; --accent-foreground: #0A6E5C;
-  --destructive: #D92D20;
+  --destructive: #D92D20; --success: #12A150; --warning: #B54708;
   --border: #DCE3EA; --input: #DCE3EA; --ring: #0A6E5C;
   --radius: 0.5rem;
 }
@@ -116,7 +118,7 @@ h1, h2, h3 { font-family: var(--font-display), var(--font-body), sans-serif; let
   --secondary: #FFF1C9; --secondary-foreground: #1A1A2E;
   --muted: #F3EEE6; --muted-foreground: #66667A;
   --accent: #D6FFF1; --accent-foreground: #05795B;
-  --destructive: #E11D48;
+  --destructive: #E11D48; --success: #05795B; --warning: #C2410C;
   --border: #1A1A2E; --input: #E7E1D8; --ring: #FF4D6D;
   --radius: 1.25rem;
 }

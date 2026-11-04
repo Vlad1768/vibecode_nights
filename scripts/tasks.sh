@@ -39,6 +39,13 @@ query() {
       cnt++; ids[cnt] = id
       for (i = 1; i <= 6; i++) cell[id, i] = trim(f[i + 1])
     }
+    # Обрезка длинного текста по границе слова (пробел — один байт, так кириллица не ломается в любом awk)
+    function short(s, n,    t, k) {
+      if (length(s) <= n) return s
+      t = substr(s, 1, n)
+      for (k = length(t); k > n / 3; k--) if (substr(t, k, 1) == " ") return substr(t, 1, k - 1) "…"
+      return t "…"
+    }
     function unmet(id,    d, k, m, out, st) {
       m = split(cell[id, 4], d, /[ ,;]+/); out = ""
       for (k = 1; k <= m; k++) {
@@ -52,7 +59,7 @@ query() {
       for (k = 1; k <= cnt; k++) {
         id = ids[k]
         if (cell[id, 2] == "…" || cell[id, 2] == "...") continue   # строка-заготовка, задачи ещё нет
-        if (cell[id, 5] == "свободна" && unmet(id) == "") { printf "  %-5s %s  [%s]\n", id, cell[id, 2], cell[id, 3]; found = 1 }
+        if (cell[id, 5] == "свободна" && unmet(id) == "") { printf "  %-5s %s  [%s]\n", id, short(cell[id, 2], 150), short(cell[id, 3], 60); found = 1 }
       }
       if (!found) print "  (свободных задач с готовыми зависимостями нет)"
     }
@@ -66,8 +73,8 @@ query() {
           id = ids[k]; st = cell[id, 5]
           if (st ~ /^готово/) dn++
           else if (st == "свободна") fr++
-          else if (st ~ /^в работе/) work = work sprintf("  %-5s %-26s %s\n", id, st, substr(cell[id, 2], 1, 80))
-          else if (st ~ /^блок/)     blk  = blk  sprintf("  %-5s %-26s %s\n", id, st, substr(cell[id, 2], 1, 80))
+          else if (st ~ /^в работе/) work = work sprintf("  %-5s %-26s %s\n", id, st, short(cell[id, 2], 110))
+          else if (st ~ /^блок/)     blk  = blk  sprintf("  %-5s %-26s %s\n", id, st, short(cell[id, 2], 110))
         }
         printf "Всего: %d · готово: %d · свободно: %d\n", cnt, dn, fr
         if (work != "") printf "В работе:\n%s", work
