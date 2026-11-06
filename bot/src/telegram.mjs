@@ -85,18 +85,27 @@ export function createTelegram({ token, fetchImpl = globalThis.fetch, baseUrl = 
         { offset, timeout: timeoutSec, allowed_updates: ['message', 'callback_query'] },
         { timeoutMs: (timeoutSec + 10) * 1000, signal },
       ),
-    async sendMessage(chatId, text, { buttons } = {}) {
-      const parts = splitText(text);
+    // html: true — разметка Telegram HTML (жирный, раскрывающаяся цитата). Возвращает message_id последней части.
+    async sendMessage(chatId, text, { buttons, html = false } = {}) {
+      const parts = html ? [text] : splitText(text);
+      let last = null;
       for (let i = 0; i < parts.length; i++) {
-        const last = i === parts.length - 1;
-        await call('sendMessage', {
+        const isLast = i === parts.length - 1;
+        last = await call('sendMessage', {
           chat_id: chatId,
           text: parts[i],
+          parse_mode: html ? 'HTML' : undefined,
           link_preview_options: { is_disabled: true },
-          reply_markup: last ? inlineKeyboard(buttons) : undefined,
+          reply_markup: isLast ? inlineKeyboard(buttons) : undefined,
         });
       }
+      return last?.message_id ?? null;
     },
+    // Заменить или убрать кнопки под уже отправленным сообщением (markup: inline_keyboard или null).
+    editButtons: (chatId, messageId, markup) =>
+      call('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: markup ?? { inline_keyboard: [] } }).catch(() => {}),
+    pinMessage: (chatId, messageId) =>
+      call('pinChatMessage', { chat_id: chatId, message_id: messageId, disable_notification: true }),
     // photo: file_id или URL (строка) либо { buffer, filename, mimeType }. Возвращает file_id для повторного использования.
     async sendPhoto(chatId, photo, { caption, buttons } = {}) {
       const fields = { chat_id: String(chatId), caption, reply_markup: inlineKeyboard(buttons) };

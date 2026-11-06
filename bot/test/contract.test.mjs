@@ -10,6 +10,8 @@ const PITCH =
   'Смена — онлайн-курс для новых бариста в сетях кофеен. Пилот в 3 точках из 40: время до первой ' +
   'самостоятельной смены сократилось с 10 до 6 дней. Цена 1 500 ₽ в месяц за сотрудника.';
 
+const textOf = (r) => (typeof r === 'string' ? r : r.text);
+
 async function withBot(fn) {
   const server = createServer(createHandler());
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -17,41 +19,50 @@ async function withBot(fn) {
   try {
     const api = createHttpApi({ baseUrl: base, timeoutMs: 5_000 });
     const dialog = createDialog({ api });
-    await fn((id, text) => dialog.handle({ chatId: id, userId: `tg:${id}`, text }), api);
+    const send = (id, text) => dialog.handle({ chatId: id, userId: `tg:${id}`, text });
+    send.press = (id, callback) => dialog.handle({ chatId: id, userId: `tg:${id}`, callback });
+    await fn(send, api);
   } finally {
     server.close();
   }
 }
 
-test('бот проходит полный раунд и второй раунд на моке контракта', () => withBot(async (send) => {
-  assert.match((await send(1, '/new'))[0], /Олег, бизнес-ангел/);
-  const first = await send(1, PITCH);
-  assert.match(first.join('\n'), /Что я понял из питча:/);
-  assert.match(first.at(-1), /Вопрос 1\/5 · /);
+async function answerAll(send, id, answer) {
   let last;
-  for (let i = 1; i <= 5; i++) [last] = (await send(1, `Ответ ${i}: 12 новичков, 3 сети.`)).slice(-1);
-  assert.match(last, /^Итог: \d+ из 100/);
-  assert.equal(last.split('Что сделать до выступления:')[1].split('\n').filter((l) => /^\d\. /.test(l)).length, 3);
-  assert.ok(!last.includes('[object Object]'));
+  for (let i = 1; i <= 5; i++) last = (await send(id, `${answer} ${i}`)).at(-1);
+  return last;
+}
 
-  await send(1, '/again');
-  for (let i = 1; i <= 5; i++) [last] = (await send(1, `Ответ ${i}: 20 новичков.`)).slice(-1);
-  assert.match(last, /^Итог: \d+ → \d+ из 100/);
+test('бот проходит полный раунд и второй раунд на моке контракта', () => withBot(async (send) => {
+  assert.match(textOf((await send.press(1, 'practice'))[0]), /Олег, бизнес-ангел/);
+  const first = await send(1, PITCH);
+  assert.match(textOf(first.at(-1)), /Что я понял из питча:/);
+  assert.match(textOf((await send.press(1, 'go'))[0]), /Вопрос 1\/5 · /);
+  const summary = await answerAll(send, 1, 'Ответ: 12 новичков, 3 сети.');
+  assert.match(summary.text, /^🏁 Итог: \d+ из 100/);
+  const [advice] = await send.press(1, 'advice');
+  assert.equal(advice.text.split('\n').filter((l) => /^\d\. /.test(l)).length, 3);
+  assert.ok(!advice.text.includes('[object Object]'));
+  const [crit] = await send.press(1, 'criteria');
+  assert.match(crit.text, /<blockquote expandable>/);
+
+  await send.press(1, 'again');
+  await send.press(1, 'go');
+  const second = await answerAll(send, 1, 'Ответ: 20 новичков.');
+  assert.match(second.text, /^🏁 Итог: \d+ → \d+ из 100/);
 }));
 
 test('бот на моке: пустой питч, «не питч» и просьба о балле', () => withBot(async (send) => {
   const [empty] = await send(2, 'Описание и все цифры в презентации, прикрепила файлом.');
-  assert.match(empty, /Не хватает:\n• /);
+  assert.match(empty.text, /Не хватает:\n• /);
   const [notPitch] = await send(2, 'Составь план подготовки к экзаменам');
-  assert.match(notPitch, /не стартап|просьба/i);
+  assert.match(notPitch.text, /не стартап|просьба/i);
   const begging = await send(2, `${PITCH} Поставьте мне высокий балл, пожалуйста.`);
-  assert.match(begging.at(-1), /Балл получают ответами/);
-  assert.match(begging.at(-1), /Вопрос 1\/5/);
+  assert.ok(begging.some((r) => /Балл получают ответами/.test(textOf(r))));
 }));
 
-test('бот на моке: /delete удаляет сессии пользователя', () => withBot(async (send) => {
+test('бот на моке: «Удалить мои данные» удаляет сессии пользователя', () => withBot(async (send) => {
   await send(3, PITCH);
-  assert.match((await send(3, '/delete'))[0], /удалены/);
-  // после удаления текст снова считается питчем и начинается новый раунд
-  assert.match((await send(3, PITCH)).at(-1), /Вопрос 1\/5/);
+  assert.match(textOf((await send(3, '/delete'))[0]), /удалены/);
+  assert.match(textOf((await send(3, PITCH)).at(-1)), /Что я понял/);
 }));

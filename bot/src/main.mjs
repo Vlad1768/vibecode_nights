@@ -11,6 +11,8 @@ import { createMockApi } from './api/mock.mjs';
 import { createHttpApi } from './api/http.mjs';
 import { createMediaReader } from './media.mjs';
 import { inputFromMessage } from './input.mjs';
+import { createStore } from './store.mjs';
+import { buttonsAfterPress } from './buttons.mjs';
 import { createGeminiClientFromEnv } from '../../integrations/gemini/client.mjs';
 
 // Фото приветствия: BOT_WELCOME_PHOTO (file_id или https-ссылка) или файл bot/assets/welcome.{jpg,jpeg,png}.
@@ -61,12 +63,20 @@ async function main() {
   }
   if (!gemini) log('warn', 'media.no_recognition', { hint: 'GEMINI_API_KEY не задан — голос, PDF и фото не распознаются' });
   const media = createMediaReader({ gemini, download: (fileId, max) => tg.downloadFile(fileId, max) });
-  const dialog = createDialog({ api, media });
+  // BOT_DATA_DIR — куда сохранять прошлые раунды и напоминания (на сервере /var/lib/investor-bot).
+  const store = createStore({ dir: process.env.BOT_DATA_DIR || null });
+  const dialog = createDialog({ api, media, store });
 
   const welcomeSource = welcomePhotoSource(process.env);
   let welcomeFileId = typeof welcomeSource === 'string' ? welcomeSource : null;
-  async function sendReply(chatId, reply) {
+  // pressed — сообщение с нажатой кнопкой (для «Закрепить план» и «Сделал ✔»).
+  async function sendReply(chatId, reply, pressed) {
     if (typeof reply === 'string') return tg.sendMessage(chatId, reply);
+    if (reply.action === 'pin') {
+      if (pressed) await tg.pinMessage(chatId, pressed.message_id).catch((err) => log('warn', 'telegram.pin_failed', { error: err?.message }));
+      return;
+    }
+    if (reply.action === 'markDone') return; // кнопку уже поменяли в buttonsAfterPress
     if (reply.photo === 'welcome' && welcomeSource) {
       try {
         const photo = welcomeFileId ?? { buffer: await readFile(welcomeSource.path), filename: welcomeSource.filename, mimeType: welcomeSource.mimeType };
@@ -77,7 +87,7 @@ async function main() {
         log('warn', 'welcome.photo_failed', { error: err?.message });
       }
     }
-    return tg.sendMessage(chatId, reply.text, { buttons: reply.buttons });
+    return tg.sendMessage(chatId, reply.text, { buttons: reply.buttons, html: reply.html });
   }
   const stop = new AbortController();
   const inFlight = new Set();
@@ -101,14 +111,19 @@ async function main() {
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-  async function process1(chat, from, input, callbackId) {
+  async function process1(chat, from, input, callback) {
     const chatId = chat.id;
     // Только личные чаты: в группах сессии участников смешивались бы в одном окне.
     if (chat.type !== 'private') return;
     const userId = `tg:${from?.id ?? chatId}`;
     const started = Date.now();
     try {
-      if (callbackId) tg.answerCallback(callbackId);
+      if (callback) {
+        tg.answerCallback(callback.id);
+        // Нажатая кнопка гаснет или меняется, чтобы её нельзя было нажать дважды (§10.2).
+        const markup = buttonsAfterPress(callback.message?.reply_markup, input.callback);
+        if (markup !== undefined) tg.editButtons(chatId, callback.message.message_id, markup);
+      }
       const typing = setInterval(() => tg.sendTyping(chatId), 4_000);
       tg.sendTyping(chatId);
       let replies;
@@ -117,12 +132,22 @@ async function main() {
       } finally {
         clearInterval(typing);
       }
-      for (const reply of replies) await sendReply(chatId, reply);
+      for (const reply of replies) await sendReply(chatId, reply, callback?.message);
       log('info', 'message.handled', { chat: chatId, kind: input.callback ? 'button' : input.media?.kind ?? 'text', ms: Date.now() - started });
     } catch (err) {
       log('error', 'message.failed', { chat: chatId, error: err?.message ?? String(err) });
     }
   }
+
+  // Напоминания о втором раунде: проверка раз в минуту.
+  const reminderTimer = setInterval(async () => {
+    for (const r of store.takeDue()) {
+      const reply = dialog.reminderReply();
+      await tg.sendMessage(r.chatId, reply.text, { buttons: reply.buttons }).catch((err) => log('warn', 'reminder.failed', { error: err?.message }));
+      log('info', 'reminder.sent', { chat: r.chatId });
+    }
+  }, 60_000);
+  reminderTimer.unref();
 
   log('info', 'bot.started', { api: api.mode, recognition: !!gemini, welcomePhoto: !!welcomeSource });
   tg.setCommands(COMMANDS).catch((err) => log('warn', 'telegram.set_commands_failed', { error: err?.message }));
@@ -155,7 +180,7 @@ async function main() {
         p = process1(update.message.chat, update.message.from, inputFromMessage(update.message));
       } else if (update.callback_query?.message) {
         const cq = update.callback_query;
-        p = process1(cq.message.chat, cq.from, { callback: String(cq.data ?? '') }, cq.id);
+        p = process1(cq.message.chat, cq.from, { callback: String(cq.data ?? '') }, cq);
       } else continue;
       p = p.finally(() => inFlight.delete(p));
       inFlight.add(p);
@@ -164,6 +189,8 @@ async function main() {
 
   // Даём текущим ответам до 10 секунд завершиться.
   await Promise.race([Promise.allSettled([...inFlight]), sleep(10_000)]);
+  clearInterval(reminderTimer);
+  store.flush();
   healthServer?.close();
   log('info', 'bot.stopped');
 }

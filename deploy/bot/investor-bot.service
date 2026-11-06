@@ -10,6 +10,10 @@ Group=investorbot
 WorkingDirectory=/opt/investor-bot/bot
 # Токен и настройки: /etc/investor-bot/bot.env (0640 root:investorbot), в Git не хранится.
 EnvironmentFile=/etc/investor-bot/bot.env
+# Прошлые раунды и напоминания о втором раунде (хранятся 14 дней).
+Environment=BOT_DATA_DIR=/var/lib/investor-bot
+StateDirectory=investor-bot
+StateDirectoryMode=0750
 ExecStart=/usr/bin/env node src/main.mjs
 Restart=always
 RestartSec=5
