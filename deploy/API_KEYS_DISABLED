@@ -1,0 +1,2 @@
+Project model API credentials and the Telegram bot token are disabled by the owner's explicit request.
+Deployment must run the bounded credential purge instead of installing credentials or starting the bot.

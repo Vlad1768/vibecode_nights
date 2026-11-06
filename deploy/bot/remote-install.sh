@@ -11,6 +11,61 @@ BUNDLE=/tmp/investor-bot.tgz
 
 log() { echo "[remote] $*"; }
 
+# A revocation marker is permanent: even an older incoming bundle must not
+# restore model keys or the Telegram token through the normal installer.
+bundle_members=$(tar -tzf "$BUNDLE") || { log "Cannot inspect deployment bundle; stopping before changes"; exit 1; }
+bundle_member() { # Only these exact relative member names are ever extracted.
+  local name=$1 candidate count found=''
+  for candidate in "$name" "./$name"; do
+    count=$(printf '%s\n' "$bundle_members" | grep -Fxc -- "$candidate" || true)
+    if [ "$count" -gt 0 ]; then
+      if [ "$count" -ne 1 ] || [ -n "$found" ]; then
+        log "Ambiguous revocation files in deployment bundle" >&2
+        return 1
+      fi
+      found=$candidate
+    fi
+  done
+  printf '%s' "$found"
+}
+require_regular_member() {
+  local kind
+  kind=$(tar -tvzf "$BUNDLE" --no-wildcards -- "$1" | cut -c 1)
+  [ "$kind" = - ] || { log "Revocation bundle member must be one regular file" >&2; return 1; }
+}
+disabled_member=$(bundle_member deploy/API_KEYS_DISABLED)
+if [ -n "$disabled_member" ] ||
+   [ -e "$APP_DIR/deploy/API_KEYS_DISABLED" ] || [ -L "$APP_DIR/deploy/API_KEYS_DISABLED" ] ||
+   [ -e /etc/investor-api/API_KEYS_DISABLED ] || [ -L /etc/investor-api/API_KEYS_DISABLED ]; then
+  [ "$(id -u)" = 0 ] || { log "Key revocation requires root"; exit 1; }
+  umask 077
+  guard_dir=$(mktemp -d /run/investor-key-revocation.XXXXXX)
+  mkdir -m 0700 "$guard_dir/deploy"
+  trap 'rm -f -- "$guard_dir/deploy/revoke-api-keys.sh" "$guard_dir/deploy/API_KEYS_DISABLED"; rmdir -- "$guard_dir/deploy" "$guard_dir" 2>/dev/null || true' EXIT
+  revoke_member=$(bundle_member deploy/revoke-api-keys.sh)
+  if [ -n "$revoke_member" ]; then
+    require_regular_member "$revoke_member"
+    tar -xOzf "$BUNDLE" --no-wildcards -- "$revoke_member" > "$guard_dir/deploy/revoke-api-keys.sh"
+  elif [ -f /etc/investor-api/revoke-api-keys.sh ] && [ ! -L /etc/investor-api/revoke-api-keys.sh ]; then
+    cp -- /etc/investor-api/revoke-api-keys.sh "$guard_dir/deploy/revoke-api-keys.sh"
+  elif [ -f "$APP_DIR/deploy/revoke-api-keys.sh" ] && [ ! -L "$APP_DIR/deploy/revoke-api-keys.sh" ]; then
+    cp -- "$APP_DIR/deploy/revoke-api-keys.sh" "$guard_dir/deploy/revoke-api-keys.sh"
+  else
+    log "Keys are disabled; no trusted revocation script is available. Normal deployment refused."
+    exit 1
+  fi
+  if [ -n "$disabled_member" ]; then
+    require_regular_member "$disabled_member"
+    tar -xOzf "$BUNDLE" --no-wildcards -- "$disabled_member" > "$guard_dir/deploy/API_KEYS_DISABLED"
+  else
+    : > "$guard_dir/deploy/API_KEYS_DISABLED"
+  fi
+  chmod 0600 "$guard_dir/deploy/revoke-api-keys.sh" "$guard_dir/deploy/API_KEYS_DISABLED"
+  log "Keys are disabled; running revocation only, without reinstalling API or bot"
+  bash "$guard_dir/deploy/revoke-api-keys.sh"
+  exit 0
+fi
+
 # 1. Node.js 22+
 node_major() { command -v node >/dev/null 2>&1 && node -p 'process.versions.node.split(".")[0]' || echo 0; }
 if [ "$(node_major)" -lt 22 ]; then

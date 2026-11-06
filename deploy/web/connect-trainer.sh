@@ -41,6 +41,17 @@ EOF
 done
 site() { SSHPASS="$SITE_PASSWORD" sshpass -e ssh -F "$work/config" site "$@"; }
 bot() { SSHPASS="$BOT_PASSWORD" sshpass -e ssh -F "$work/config" bot "$@"; }
+if [ "$MODE" != probe ] && [ -f deploy/API_KEYS_DISABLED ]; then
+  # Credential retirement takes priority over every ordinary deployment change.
+  for target in bot site; do
+    "$target" 'install -d -m 0700 /etc/investor-api; umask 077; cat > /etc/investor-api/revoke-api-keys.sh' < deploy/revoke-api-keys.sh
+    "$target" 'bash /etc/investor-api/revoke-api-keys.sh'
+  done
+  site 'curl -fsS --max-time 5 http://127.0.0.1:8787/api/health' |
+    python3 -c 'import json,sys; assert json.load(sys.stdin).get("mode")=="demo"'
+  echo 'Credential retirement completed; normal attach/connect was skipped.'
+  exit 0
+fi
 for target in site bot; do
   echo "Server: $target"
   "$target" 'bash -s' < deploy/web/probe.sh
