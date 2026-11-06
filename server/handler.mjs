@@ -1,5 +1,5 @@
 // HTTP-обработчик API по контракту docs/CONTRACT.md: маршруты, JSON, ошибки, лимиты, тайм-аут.
-import { TrainerError } from '../core/guard.mjs';
+import { TrainerError, checkPitch } from '../core/guard.mjs';
 import { clientIp, createWindow } from './limits.mjs';
 
 export const API_VERSION = '1.0';
@@ -47,12 +47,25 @@ function withTimeout(promise, ms) {
 
 /**
  * @param {ReturnType<import('../core/trainer.mjs').createTrainer>} trainer
- * @param {{ requestTimeoutMs?: number, sessionsPerHour?: number, requestsPerMinute?: number, log?: Function }} [o]
+ * @param {{ requestTimeoutMs?: number, sessionsPerHour?: number, requestsPerMinute?: number, maxConcurrent?: number, log?: Function }} [o]
  */
-export function createHandler(trainer, { requestTimeoutMs = 45_000, sessionsPerHour = 10, requestsPerMinute = 60, log = () => {} } = {}) {
+export function createHandler(trainer, { requestTimeoutMs = 45_000, sessionsPerHour = 10, requestsPerMinute = 60, maxConcurrent = 12, log = () => {} } = {}) {
+  if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1) throw new RangeError('maxConcurrent must be a positive integer');
   const perIp = createWindow({ max: requestsPerMinute, windowMs: 60_000 });
   const perUser = createWindow({ max: sessionsPerHour, windowMs: 60 * 60_000 });
   const limited = (sec) => new TrainerError(429, 'RATE_LIMITED', `Слишком много запросов. Подождите ${sec} с.`, { retryAfterSec: sec });
+  let active = 0;
+  const runBounded = (work, admit = () => {}) => {
+    if (active >= maxConcurrent) throw limited(1);
+    // Admission is synchronous: concurrent starts cannot all observe a free quota.
+    // Rejected/failed model attempts still cost resources and keep their quota.
+    admit();
+    active++;
+    const pending = Promise.resolve().then(work).finally(() => { active--; });
+    // Keep the slot until the underlying operation settles, even when HTTP times
+    // out first. Otherwise repeated retries could multiply work behind the limit.
+    return withTimeout(pending, requestTimeoutMs);
+  };
 
   const handler = async (req, res) => {
     const send = (status, body) => {
@@ -78,15 +91,22 @@ export function createHandler(trainer, { requestTimeoutMs = 45_000, sessionsPerH
       if (req.method === 'POST' && p === '/api/sessions') {
         const b = await readJson(req);
         const userId = needUser(b.userId);
+        const pitch = needText(b.pitch, 'pitch');
+        checkPitch(pitch); // Cheap invalid input does not consume a model attempt.
         const wait = perUser.wait(userId);
         if (wait) throw limited(wait);
-        const r = await withTimeout(trainer.start({ userId, pitch: needText(b.pitch, 'pitch'), previousSessionId: b.previousSessionId ?? null, personaId: b.personaId }), requestTimeoutMs);
-        perUser.hit(userId);
+        const r = await runBounded(
+          () => trainer.start({ userId, pitch, previousSessionId: b.previousSessionId ?? null, personaId: b.personaId }),
+          () => perUser.hit(userId),
+        );
         return send(r.status, r.body);
       }
       if (req.method === 'POST' && (m = p.match(/^\/api\/sessions\/([^/]+)\/answers$/))) {
         const b = await readJson(req);
-        const r = await withTimeout(trainer.answer(decodeURIComponent(m[1]), { userId: needUser(b.userId), step: b.step, answer: needText(b.answer, 'answer') }), requestTimeoutMs);
+        const userId = needUser(b.userId);
+        const answer = needText(b.answer, 'answer');
+        const sessionId = decodeURIComponent(m[1]);
+        const r = await runBounded(() => trainer.answer(sessionId, { userId, step: b.step, answer }));
         return send(r.status, r.body);
       }
       if (req.method === 'GET' && (m = p.match(/^\/api\/sessions\/([^/]+)$/))) {
