@@ -78,6 +78,48 @@ test('browser cannot impersonate another browser or a Telegram user via body/que
   assert.equal((await f.start({ previousSessionId: a.body.sessionId }, b.cookie)).status, 404);
 });
 
+test('character selection reaches the shared API and survives answers, recovery and the second round', async (t) => {
+  const f = await fixture(t);
+  const catalogue = await f.request('/api/personas', { headers: { 'X-Web-Client': '' } });
+  assert.equal(catalogue.status, 200);
+  assert.deepEqual(catalogue.body.personas.map((p) => p.id), ['angel', 'corporate', 'grant', 'venture', 'hype-alchemist']);
+  const first = await f.start({ personaId: 'corporate', userId: 'tg:1234' });
+  assert.equal(first.status, 201);
+  assert.equal(first.body.persona.id, 'corporate');
+  const path = `/api/sessions/${first.body.sessionId}`;
+  let state;
+  for (let step = 1; step <= 5; step++) {
+    state = await f.request(path + '/answers', { method: 'POST', cookie: first.cookie,
+      body: { step, answer: 'Пока не знаю ответа', personaId: 'venture' } });
+    assert.equal(state.status, 200);
+    assert.equal(state.body.persona.id, 'corporate', 'answers cannot change the session character');
+  }
+  assert.equal(state.body.done, true);
+  assert.equal(state.body.result.criteria.length, 10);
+  assert.equal(state.body.result.advice.length, 3);
+  assert.equal((await f.request(path, { cookie: first.cookie })).body.persona.id, 'corporate');
+  const second = await f.start({ previousSessionId: first.body.sessionId }, first.cookie);
+  assert.equal(second.status, 201);
+  assert.equal(second.body.persona.id, 'corporate');
+  assert.equal((await f.start({ previousSessionId: first.body.sessionId, personaId: 'venture' }, first.cookie)).status, 400);
+});
+
+test('character input rejects invalid values and exposes only allowlisted portrait files', async (t) => {
+  const f = await fixture(t);
+  for (const personaId of ['', null, {}, ['angel'], '../angel', 'unknown', 'a'.repeat(65)]) {
+    const result = await f.start({ personaId });
+    assert.equal(result.status, 400, JSON.stringify(personaId));
+    assert.equal(result.body.error.code, 'BAD_REQUEST');
+  }
+  for (const id of ['angel', 'corporate', 'grant', 'venture', 'hype-alchemist']) {
+    const response = await fetch(`${f.base}/assets/personas/${id}.jpg`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'image/jpeg');
+    assert.ok(Number(response.headers.get('content-length')) > 0);
+  }
+  assert.equal((await fetch(f.base + '/assets/personas/README.md')).status, 404);
+});
+
 test('signed identity survives gateway restart; expiration rejects access', async (t) => {
   let timestamp = Date.now();
   const f = await fixture(t, { now: () => timestamp });

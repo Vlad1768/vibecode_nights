@@ -26,6 +26,9 @@ const STATIC = new Map([
   ['/entrance.css', ['entrance.css', 'text/css; charset=utf-8']],
   ['/entrance.mjs', ['entrance.mjs', 'text/javascript; charset=utf-8']],
   ['/assets/investor-fight.jpg', ['assets/investor-fight.jpg', 'image/jpeg']],
+  ...['angel', 'corporate', 'grant', 'venture', 'hype-alchemist'].map((id) => [
+    `/assets/personas/${id}.jpg`, [`assets/personas/${id}.jpg`, 'image/jpeg'],
+  ]),
 ]);
 const ERRORS = new Set(['BAD_REQUEST', 'EMPTY_PITCH', 'NOT_A_PITCH', 'PITCH_TOO_LONG', 'EMPTY_ANSWER', 'ANSWER_TOO_LONG', 'SESSION_NOT_FOUND', 'SESSION_DONE', 'STEP_MISMATCH', 'RATE_LIMITED', 'AI_UNAVAILABLE']);
 class HttpError extends Error {
@@ -168,7 +171,7 @@ export function createGateway({
     }
     if (!path.startsWith('/api/')) throw new HttpError(404, 'NOT_FOUND', 'Страница не найдена.');
     charge(req);
-    if (req.method === 'GET' && ['/api/health', '/api/persona'].includes(path)) return proxy(req, res, path);
+    if (req.method === 'GET' && ['/api/health', '/api/persona', '/api/personas'].includes(path)) return proxy(req, res, path);
     if (['POST', 'DELETE'].includes(req.method)) sameOrigin(req);
     const tag = tabTag(req);
     let userId = identity(req, tag);
@@ -176,9 +179,10 @@ export function createGateway({
       const body = await bodyJSON(req);
       if (typeof body.pitch !== 'string' || body.pitch.length > 4000) throw new HttpError(422, 'PITCH_TOO_LONG', 'Питч должен содержать не больше 4000 символов.');
       if (body.previousSessionId != null && !UUID.test(body.previousSessionId)) throw new HttpError(400, 'BAD_REQUEST', 'Некорректный предыдущий раунд.');
+      if (body.personaId !== undefined && (typeof body.personaId !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(body.personaId))) throw new HttpError(400, 'BAD_REQUEST', 'Выберите характер инвестора из списка.');
       userId ||= `web:${randomUUID()}`;
       remember(req, res, userId, tag);
-      return proxy(req, res, path, { userId, pitch: body.pitch, previousSessionId: body.previousSessionId ?? null });
+      return proxy(req, res, path, { userId, pitch: body.pitch, previousSessionId: body.previousSessionId ?? null, ...(body.personaId === undefined ? {} : { personaId: body.personaId }) });
     }
     const match = path.match(/^\/api\/sessions\/([^/]+)(\/answers)?$/);
     if (match && UUID.test(match[1]) && ((req.method === 'GET' && !match[2]) || (req.method === 'POST' && match[2]))) {

@@ -12,6 +12,8 @@ public_files=(
   assets/investors/burgundy-investor.jpg
   assets/investors/corporate-investor.jpg
   assets/investors/green-coat-investor.jpg
+  assets/personas/angel.jpg assets/personas/corporate.jpg assets/personas/grant.jpg
+  assets/personas/venture.jpg assets/personas/hype-alchemist.jpg
 )
 tunnel_env=/etc/fightinvestor-tunnel
 case "$action" in

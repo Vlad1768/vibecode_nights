@@ -165,6 +165,30 @@ test('health и persona в форме контракта', () => withServer(asyn
   assert.equal(p.character, undefined, 'внутреннее описание персонажа наружу не отдаётся');
 }));
 
+test('каталог характеров и personaId проходят через HTTP, неизвестный выбор отклоняется', () => withServer(async (call) => {
+  const list = await call('GET', '/api/personas');
+  assert.equal(list.status, 200);
+  assert.equal(list.body.defaultId, 'angel');
+  assert.deepEqual(list.body.personas.map((p) => p.id), ['angel', 'corporate', 'grant', 'venture', 'hype-alchemist']);
+  for (const p of list.body.personas) {
+    assert.ok(p.trait && p.focus);
+    assert.equal(p.character, undefined);
+  }
+  const selected = await call('POST', '/api/sessions', { userId: 'web:selection', pitch: PITCH, personaId: 'grant' });
+  assert.equal(selected.status, 201);
+  assert.equal(selected.body.persona.id, 'grant');
+  const restored = await call('GET', `/api/sessions/${selected.body.sessionId}?userId=web:selection`);
+  assert.deepEqual(restored.body.persona, selected.body.persona);
+  for (const personaId of ['', null, 3, {}, ['angel'], 'missing', '__proto__', 'constructor']) {
+    const invalid = await call('POST', '/api/sessions', { userId: 'web:selection', pitch: PITCH, personaId });
+    assert.equal(invalid.status, 400, JSON.stringify(personaId));
+    assert.equal(invalid.body.error.code, 'BAD_REQUEST');
+  }
+  const legacy = await call('POST', '/api/sessions', { userId: 'tg:legacy', pitch: PITCH });
+  assert.equal(legacy.status, 201);
+  assert.equal(legacy.body.persona.name, 'Олег');
+}));
+
 test('клиент бота T27 работает без изменений (ответы без step)', () => withServer(async (_call, base) => {
   const { createHttpApi } = await import('../bot/src/api/http.mjs');
   const api = createHttpApi({ baseUrl: base });

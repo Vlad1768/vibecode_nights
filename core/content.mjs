@@ -70,6 +70,9 @@ export function validateContent(raw) {
   for (const key of ['id', 'name', 'title', 'intro', 'howScored', 'character']) {
     if (!isText(p[key])) fail(`persona.${key} — непустая строка`);
   }
+  for (const key of ['trait', 'focus']) {
+    if (p[key] !== undefined && !isText(p[key], 200)) fail(`persona.${key} — строка до 200 символов`);
+  }
   const w = raw.weights;
   if (!Array.isArray(w) || w.length !== 10 || !w.every((x) => Number.isInteger(x) && x >= 0)) {
     fail('weights — 10 целых чисел ≥ 0 в порядке критериев кейса');
@@ -87,7 +90,10 @@ export function validateContent(raw) {
   const stop = raw.stopPhrases ?? DEFAULT_CONTENT.stopPhrases;
   if (!Array.isArray(stop) || !stop.every((x) => isText(x, 200))) fail('stopPhrases — массив строк');
   return deepFreeze({
-    persona: { id: p.id, name: p.name, title: p.title, intro: p.intro, howScored: p.howScored, character: p.character },
+    persona: {
+      id: p.id, name: p.name, title: p.title, intro: p.intro, howScored: p.howScored, character: p.character,
+      ...(p.trait ? { trait: p.trait } : {}), ...(p.focus ? { focus: p.focus } : {}),
+    },
     weights: [...w],
     slots: s.map((slot) => ({
       topic: slot.topic, goal: slot.goal, criteria: [...slot.criteria],

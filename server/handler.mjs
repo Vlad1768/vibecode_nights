@@ -74,12 +74,13 @@ export function createHandler(trainer, { requestTimeoutMs = 45_000, sessionsPerH
       let m;
       if (req.method === 'GET' && p === '/api/health') return send(200, { ok: true, mode: trainer.mode, version: API_VERSION });
       if (req.method === 'GET' && p === '/api/persona') return send(200, trainer.persona());
+      if (req.method === 'GET' && p === '/api/personas') return send(200, trainer.personas());
       if (req.method === 'POST' && p === '/api/sessions') {
         const b = await readJson(req);
         const userId = needUser(b.userId);
         const wait = perUser.wait(userId);
         if (wait) throw limited(wait);
-        const r = await withTimeout(trainer.start({ userId, pitch: needText(b.pitch, 'pitch'), previousSessionId: b.previousSessionId ?? null }), requestTimeoutMs);
+        const r = await withTimeout(trainer.start({ userId, pitch: needText(b.pitch, 'pitch'), previousSessionId: b.previousSessionId ?? null, personaId: b.personaId }), requestTimeoutMs);
         perUser.hit(userId);
         return send(r.status, r.body);
       }

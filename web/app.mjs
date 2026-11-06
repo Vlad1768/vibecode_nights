@@ -33,6 +33,8 @@ const defaultState = () => ({
   round: 1,
   previousSessionId: null,
   previousTotal: null,
+  personaId: null,
+  persona: null,
   facts: null,
   reaction: null,
   notice: null
@@ -45,6 +47,12 @@ let activeRequest = null;
 let liveStateBeforeDemo = loadLiveBackup();
 let quotaKnown = false;
 let apiMode = 'unknown';
+let personas = [];
+let defaultPersonaId = null;
+let fallbackPersona = null;
+let personaCatalogUnavailable = false;
+const personaCards = new Map();
+const portraitIds = new Set(['angel', 'corporate', 'grant', 'venture', 'hype-alchemist']);
 
 // Ссылки на DOM-элементы
 const dom = {
@@ -54,6 +62,12 @@ const dom = {
   personaName: document.getElementById('persona-name'),
   personaIntro: document.getElementById('persona-intro'),
   personaScoring: document.getElementById('persona-scoring'),
+  personaSelector: document.getElementById('persona-selector'),
+  personaOptions: document.getElementById('persona-options'),
+  personaSelectionHint: document.getElementById('persona-selection-hint'),
+  personaUnavailable: document.getElementById('persona-unavailable'),
+  roundPersona: document.getElementById('round-persona'),
+  questionSpeaker: document.getElementById('question-speaker'),
   roundIntro: document.getElementById('round-intro'),
   startMainBtn: document.getElementById('start-main-btn'),
   startDemoHeroBtn: document.getElementById('start-demo-hero-btn'),
@@ -128,6 +142,8 @@ function loadState(storageKey = STORAGE_KEY) {
     const recovered = defaultState();
     if (typeof parsed.pitchDraft === 'string') recovered.pitchDraft = parsed.pitchDraft.slice(0, PITCH_MAX);
     if (typeof parsed.answerDraft === 'string') recovered.answerDraft = parsed.answerDraft.slice(0, ANSWER_MAX);
+    if (isPersonaId(parsed.personaId)) recovered.personaId = parsed.personaId;
+    if (isPersona(parsed.persona)) recovered.persona = parsed.persona;
     if (!['live', 'demo'].includes(parsed.mode) || !['pitch', 'qa', 'result'].includes(parsed.stage)) return recovered;
     recovered.mode = parsed.mode;
     if (isSessionId(parsed.previousSessionId) && parsed.contractVersion === '1.0') recovered.previousSessionId = parsed.previousSessionId;
@@ -232,6 +248,7 @@ function mapResult(value) {
 
 function mapStep(data) {
   if (!data || !isSessionId(data.sessionId) || !Number.isInteger(data.round) || data.round < 1 || typeof data.demo !== 'boolean') throw invalidResponse();
+  if (data.persona !== undefined && !isPersona(data.persona)) throw invalidResponse();
   if (data.done === true && data.status === 'done') return { result: mapResult(data.result) };
   if (data.status !== 'in_progress' || !Number.isInteger(data.step) || data.step < 1 || data.step > TOTAL_STEPS
     || data.totalSteps !== TOTAL_STEPS || typeof data.question !== 'string' || !data.question.trim()
@@ -247,6 +264,12 @@ function applyApiView(data, mapped, answerEntry = null) {
   state.sessionId = data.sessionId;
   state.round = data.round;
   state.backendDemo = data.demo;
+  if (data.persona) {
+    state.persona = data.persona;
+    state.personaId = data.persona.id;
+  } else if (!state.persona) {
+    state.persona = fallbackPersona;
+  }
   if (data.facts) state.facts = data.facts;
   state.reaction = data.reaction || null;
   state.notice = data.notice || null;
@@ -324,15 +347,127 @@ function renderApiStatus() {
   dom.apiDemoBanner.hidden = state.mode === 'demo' || !(apiMode === 'demo' || state.backendDemo);
 }
 
+function isPersonaId(value) {
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(value);
+}
+
+function isPersona(value) {
+  return value && isPersonaId(value.id)
+    && ['name', 'title', 'intro', 'howScored'].every((key) => typeof value[key] === 'string' && value[key].trim())
+    && ['trait', 'focus'].every((key) => value[key] === undefined || typeof value[key] === 'string');
+}
+
 async function loadPersona() {
   try {
-    const persona = await apiRequest('/api/persona');
-    if (!persona || !['name', 'title', 'intro', 'howScored'].every((key) => typeof persona[key] === 'string')) return;
+    const catalog = await apiRequest('/api/personas');
+    if (!catalog || !Array.isArray(catalog.personas) || !catalog.personas.length
+      || catalog.personas.length > 12 || !catalog.personas.every(isPersona)
+      || new Set(catalog.personas.map((persona) => persona.id)).size !== catalog.personas.length
+      || !catalog.personas.some((persona) => persona.id === catalog.defaultId)) throw invalidResponse();
+    personas = catalog.personas;
+    defaultPersonaId = catalog.defaultId;
+    if (state.stage === 'pitch' && state.mode === 'live' && !state.previousSessionId && !isSubmitting
+      && !personas.some((persona) => persona.id === state.personaId)) {
+      state.personaId = catalog.defaultId;
+      state.persona = null;
+      saveState();
+    }
+    buildPersonaCards();
+  } catch {
+    personaCatalogUnavailable = true;
+    try {
+      const persona = await apiRequest('/api/persona');
+      if (isPersona(persona)) fallbackPersona = persona;
+    } catch { /* The pitch remains available; submission reports connection errors. */ }
+  }
+  renderPersona();
+}
+
+function buildPersonaCards() {
+  dom.personaOptions.replaceChildren();
+  personaCards.clear();
+  for (const [index, persona] of personas.entries()) {
+    const label = document.createElement('label');
+    label.className = 'persona-option';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'investor-persona';
+    radio.value = persona.id;
+    radio.className = 'persona-option__radio';
+    const body = document.createElement('span');
+    body.className = 'persona-option__body';
+    if (portraitIds.has(persona.id)) {
+      const portrait = document.createElement('img');
+      portrait.className = 'persona-option__portrait';
+      portrait.src = `/assets/personas/${persona.id}.jpg`;
+      portrait.alt = '';
+      portrait.width = 160;
+      portrait.height = 160;
+      portrait.loading = 'lazy';
+      portrait.decoding = 'async';
+      body.appendChild(portrait);
+    }
+    const copy = document.createElement('span');
+    copy.className = 'persona-option__copy';
+    const number = document.createElement('span');
+    number.className = 'persona-option__number';
+    number.textContent = `0${index + 1} · ${persona.title}`;
+    const name = document.createElement('strong');
+    name.className = 'persona-option__name';
+    name.textContent = persona.name;
+    const trait = document.createElement('span');
+    trait.className = 'persona-option__trait';
+    trait.textContent = persona.trait || persona.title;
+    const focus = document.createElement('span');
+    focus.className = 'persona-option__focus';
+    focus.textContent = persona.focus || '';
+    copy.append(number, name, trait, focus);
+    body.appendChild(copy);
+    label.append(radio, body);
+    radio.addEventListener('change', () => {
+      if (!radio.checked || isSubmitting || state.mode !== 'live' || state.stage !== 'pitch' || state.previousSessionId) return;
+      state.personaId = persona.id;
+      state.persona = null;
+      saveState();
+      renderPersona();
+      announce(`Выбран инвестор: ${persona.name}.`);
+    });
+    dom.personaOptions.appendChild(label);
+    personaCards.set(persona.id, { radio, label });
+  }
+}
+
+function renderPersona() {
+  const live = state.mode === 'live';
+  const locked = Boolean(state.previousSessionId);
+  if (live && state.stage === 'pitch' && !locked && !isSubmitting && defaultPersonaId
+    && !personas.some((persona) => persona.id === state.personaId)) {
+    state.personaId = defaultPersonaId;
+    state.persona = null;
+    saveState();
+  }
+  dom.personaSelector.hidden = !live || !personas.length || state.stage !== 'pitch';
+  dom.personaSelector.disabled = isSubmitting || locked;
+  dom.personaSelectionHint.textContent = locked
+    ? 'Во втором раунде остаётся тот же инвестор: так можно сравнить ваш прогресс. Для другого характера начните новый раунд.'
+    : 'Выберите манеру разговора. Инвестор останется с вами до конца раунда; шкала оценки у всех одинаковая.';
+  for (const [id, { radio, label }] of personaCards) {
+    radio.checked = id === state.personaId;
+    radio.disabled = isSubmitting || locked;
+    label.classList.toggle('persona-option--selected', radio.checked);
+  }
+  dom.personaUnavailable.hidden = !live || state.stage !== 'pitch' || !personaCatalogUnavailable || locked;
+  const persona = ((state.sessionId || locked) ? state.persona : null)
+    || personas.find((item) => item.id === state.personaId) || fallbackPersona;
+  dom.personaPanel.hidden = !live || !persona;
+  if (persona) {
     dom.personaName.textContent = `${persona.name} · ${persona.title}`;
     dom.personaIntro.textContent = persona.intro;
     dom.personaScoring.textContent = persona.howScored;
-    dom.personaPanel.hidden = false;
-  } catch { /* The form stays available; submission reports a connection error. */ }
+  }
+  dom.roundPersona.hidden = !live || state.stage === 'pitch' || !state.persona;
+  dom.roundPersona.textContent = state.persona ? `Ваш инвестор: ${state.persona.name} · ${state.persona.title}` : '';
+  dom.questionSpeaker.textContent = live && state.persona ? `${state.persona.name} спрашивает:` : 'Злой инвестор спрашивает:';
 }
 
 async function apiRequest(url, { payload, signal } = {}) {
@@ -393,6 +528,7 @@ function hideError() {
 
 function setSubmittingState(busy, labelText = '') {
   isSubmitting = busy;
+  renderPersona();
   dom.submitPitchBtn.disabled = busy;
   dom.submitAnswerBtn.disabled = busy;
   dom.pitchInput.readOnly = busy;
@@ -705,6 +841,7 @@ function renderResultStage() {
 
 function renderApp() {
   dom.demoBanner.hidden = state.mode !== 'demo';
+  renderPersona();
   renderApiStatus();
   dom.roundIntro.hidden = !state.previousSessionId;
   dom.roundIntro.textContent = state.previousSessionId
@@ -770,7 +907,11 @@ async function handlePitchSubmit(event) {
   activeRequest = request;
   setSubmittingState(true, 'Инвестор изучает питч…');
   try {
-    const data = await apiPost('/api/sessions', { pitch: pitchText, previousSessionId: state.previousSessionId }, request.signal);
+    const personaId = !state.previousSessionId && personas.some((persona) => persona.id === state.personaId) ? state.personaId : null;
+    const data = await apiPost('/api/sessions', {
+      pitch: pitchText, previousSessionId: state.previousSessionId,
+      ...(personaId ? { personaId } : {}),
+    }, request.signal);
     if (activeRequest !== request) return;
     const mapped = mapStep(data);
     if (data.step !== 1 || mapped.result) throw invalidResponse();
@@ -878,11 +1019,13 @@ function handleApiError(err, retryFn) {
   if (err.code === 'SESSION_NOT_FOUND') {
     // Сохраняем питч пользователя и возвращаем на старт сессии
     const savedPitch = state.pitchDraft;
+    const personaId = state.personaId;
     state = {
       ...defaultState(),
       mode: 'live',
       stage: 'pitch',
-      pitchDraft: savedPitch
+      pitchDraft: savedPitch,
+      personaId
     };
     saveState();
     renderApp();
@@ -1020,6 +1163,7 @@ function exitDemoToLive() {
 
 function startNewRound(preservePitch = false) {
   cancelPendingRequest();
+  const personaId = (state.mode === 'demo' ? liveStateBeforeDemo : state)?.personaId || null;
   clearLiveBackup();
   hideError();
   const savedPitch = preservePitch ? state.pitchDraft : '';
@@ -1027,7 +1171,8 @@ function startNewRound(preservePitch = false) {
     ...defaultState(),
     mode: 'live',
     stage: 'pitch',
-    pitchDraft: savedPitch
+    pitchDraft: savedPitch,
+    personaId
   };
   saveState();
   renderApp();
@@ -1041,10 +1186,12 @@ function startSecondRound() {
   const previousTotal = state.result.score;
   const pitchDraft = state.pitchDraft;
   const round = state.round + 1;
+  const personaId = state.personaId;
+  const persona = state.persona;
   cancelPendingRequest();
   clearLiveBackup();
   hideError();
-  state = { ...defaultState(), pitchDraft, previousSessionId, previousTotal, round };
+  state = { ...defaultState(), pitchDraft, previousSessionId, previousTotal, round, personaId, persona };
   saveState();
   renderApp();
   dom.pitchInput.focus();

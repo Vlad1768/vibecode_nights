@@ -24,12 +24,17 @@ const turn = () => new Promise((resolve) => setImmediate(resolve));
 class Element {
   constructor() {
     this.value = ''; this.hidden = false; this.dataset = {}; this.style = {}; this.children = [];
+    this.listeners = new Map();
     this.classList = { add() {}, remove() {}, toggle() {} };
   }
   append(...items) { this.children.push(...items); }
   appendChild(item) { this.children.push(item); }
   replaceChildren(...items) { this.children = [...items]; }
-  addEventListener() {}
+  addEventListener(type, listener) {
+    const listeners = this.listeners.get(type) || [];
+    this.listeners.set(type, [...listeners, listener]);
+  }
+  dispatch(type) { for (const listener of this.listeners.get(type) || []) listener({ target: this }); }
   removeAttribute() {}
   setAttribute() {}
   focus() {}
@@ -133,6 +138,19 @@ async function complete(app) {
     await app.state.answer();
   }
   assert.equal(app.state.state.stage, 'result');
+}
+
+function personaRadio(app, id) {
+  const radios = app.elements.get('persona-options').children.map((label) => label.children[0]);
+  const radio = radios.find((item) => item.value === id);
+  assert.ok(radio, `character ${id} has a radio option`);
+  return radio;
+}
+
+function choosePersona(app, id) {
+  const radio = personaRadio(app, id);
+  radio.checked = true;
+  radio.dispatch('change');
 }
 
 test('shared API: persona, facts, weighted score, evidence, recovery and a second round', async (t) => {
@@ -256,4 +274,95 @@ test('503 preserves the answer without substituting demo; unknown IDs and damage
     await recovered.idle();
     assert.equal(recovered.state.state.stage, 'pitch');
   }
+});
+
+test('character choice reaches the API, survives reload/demo, and stays fixed for a second round', async (t) => {
+  const browser = await fixture(t);
+  const app = boot(browser);
+  await app.idle();
+  assert.equal(app.elements.get('persona-selector').hidden, false);
+  assert.equal(app.elements.get('persona-options').children.length, 5);
+  choosePersona(app, 'corporate');
+  assert.equal(app.state.state.personaId, 'corporate');
+  assert.match(app.elements.get('persona-name').textContent, /Мадам Протокол/);
+  app.elements.get('pitch-input').value = EXAMPLE_PITCH;
+  app.elements.get('pitch-input').dispatch('input');
+
+  const restoredDraft = boot(browser, app.storage);
+  await restoredDraft.idle();
+  assert.equal(personaRadio(restoredDraft, 'corporate').checked, true);
+  restoredDraft.state.demo();
+  assert.equal(restoredDraft.elements.get('persona-selector').hidden, true);
+  assert.equal(restoredDraft.elements.get('round-persona').hidden, true);
+  const restoredDemo = boot(browser, app.storage);
+  await restoredDemo.idle();
+  restoredDemo.state.exitDemo();
+  assert.equal(restoredDemo.state.state.personaId, 'corporate');
+  await restoredDemo.state.pitch();
+  const startCall = browser.calls.find((call) => call.method === 'POST' && call.path === '/api/sessions');
+  assert.equal(startCall.payload.personaId, 'corporate');
+  assert.equal(restoredDemo.state.state.persona.id, 'corporate');
+  assert.match(restoredDemo.elements.get('question-speaker').textContent, /Мадам Протокол/);
+  assert.match(restoredDemo.elements.get('round-persona').textContent, /Мадам Протокол/);
+
+  // A valid but stale stored preference must not replace the server's session persona.
+  const stale = JSON.parse(restoredDemo.storage.get(storageKey));
+  stale.personaId = 'grant';
+  restoredDemo.storage.set(storageKey, JSON.stringify(stale));
+  const restoredRound = boot(browser, restoredDemo.storage);
+  await restoredRound.idle();
+  assert.equal(restoredRound.state.state.personaId, 'corporate');
+  await complete(restoredRound);
+  assert.match(restoredRound.elements.get('round-persona').textContent, /Мадам Протокол/);
+  restoredRound.state.secondRound();
+  assert.equal(restoredRound.elements.get('persona-selector').disabled, true);
+  assert.equal(personaRadio(restoredRound, 'corporate').disabled, true);
+  choosePersona(restoredRound, 'venture');
+  assert.equal(restoredRound.state.state.personaId, 'corporate', 'locked choice ignores stale change events');
+  await restoredRound.state.pitch();
+  assert.equal(restoredRound.state.state.round, 2);
+  assert.equal(restoredRound.state.state.persona.id, 'corporate');
+  restoredRound.state.reset(true);
+  assert.equal(restoredRound.state.state.personaId, 'corporate');
+  assert.equal(restoredRound.elements.get('persona-selector').disabled, false);
+  choosePersona(restoredRound, 'venture');
+  assert.equal(restoredRound.state.state.personaId, 'venture');
+});
+
+test('catalogue failure retains the legacy default and does not send an invisible stored selection', async (t) => {
+  const browser = await fixture(t);
+  browser.intercept = (call, request) => call.path === '/api/personas'
+    ? Promise.resolve(new Response(JSON.stringify({ error: { code: 'AI_UNAVAILABLE', message: 'Каталог недоступен.' } }), { status: 503 }))
+    : request();
+  const app = boot(browser, new Map([[storageKey, JSON.stringify({ mode: 'live', stage: 'pitch', personaId: 'venture', pitchDraft: EXAMPLE_PITCH })]]));
+  await app.idle();
+  assert.equal(app.elements.get('persona-selector').hidden, true);
+  assert.equal(app.elements.get('persona-unavailable').hidden, false);
+  assert.equal(app.elements.get('persona-panel').hidden, false);
+  await app.state.pitch();
+  const call = browser.calls.find((item) => item.method === 'POST' && item.path === '/api/sessions');
+  assert.equal(Object.hasOwn(call.payload, 'personaId'), false);
+  assert.equal(app.state.state.stage, 'qa');
+  assert.equal(app.state.state.persona.id, 'angel');
+});
+
+test('pending pitch keeps its chosen character even if a stale change event fires', async (t) => {
+  const browser = await fixture(t);
+  const app = boot(browser);
+  await app.idle();
+  choosePersona(app, 'grant');
+  app.elements.get('pitch-input').value = EXAMPLE_PITCH;
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  browser.intercept = async (call, request) => {
+    if (call.method === 'POST' && call.path === '/api/sessions') await held;
+    return request();
+  };
+  const submitted = app.state.pitch();
+  assert.equal(app.elements.get('persona-selector').disabled, true);
+  choosePersona(app, 'venture');
+  assert.equal(app.state.state.personaId, 'grant');
+  release();
+  await submitted;
+  assert.equal(app.state.state.persona.id, 'grant');
 });

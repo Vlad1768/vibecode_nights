@@ -144,6 +144,8 @@
         </div>
       </div>
 
+      <p id="round-persona" class="round-persona" hidden></p>
+
       <!-- ЭТАП 1: ВВОД ПИТЧА -->
       <section id="view-pitch" class="card stage-panel" aria-labelledby="pitch-heading">
         <div class="stage-panel__header">
@@ -161,7 +163,14 @@
           Кому вы помогаете и какую проблему решаете? Как работает решение, что уже проверили и на чём планируете зарабатывать? Добавьте факты и цифры, которые можете подтвердить. Если данных пока нет — так и напишите.
         </p>
 
-        <aside id="persona-panel" class="criteria-preview" aria-labelledby="persona-name" hidden>
+        <fieldset id="persona-selector" class="persona-selector" aria-describedby="persona-selection-hint" hidden>
+          <legend class="persona-selector__title">Выберите характер инвестора</legend>
+          <p id="persona-selection-hint" class="field__hint">Выберите манеру разговора. Инвестор останется с вами до конца раунда; шкала оценки у всех одинаковая.</p>
+          <div id="persona-options" class="persona-options"></div>
+        </fieldset>
+        <p id="persona-unavailable" class="field__hint" role="status" hidden>Выбор характера временно недоступен. Новый раунд начнёт инвестор по умолчанию.</p>
+
+        <aside id="persona-panel" class="criteria-preview persona-preview" aria-labelledby="persona-name" hidden>
           <h3 id="persona-name" class="criteria-preview__title"></h3>
           <p id="persona-intro"></p>
           <p id="persona-scoring" class="field__hint"></p>
@@ -230,7 +239,7 @@
 
         <article id="active-question-card" class="question-box" aria-labelledby="current-question-title">
           <div class="question-box__badge-row">
-            <span class="question-box__speaker">Злой инвестор спрашивает:</span>
+            <span id="question-speaker" class="question-box__speaker">Злой инвестор спрашивает:</span>
             <span id="current-question-counter" class="question-box__step">1 / 5</span>
           </div>
           <h3 id="current-question-title" class="question-box__title" tabindex="-1"></h3>

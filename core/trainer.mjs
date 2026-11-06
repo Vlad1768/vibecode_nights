@@ -7,7 +7,8 @@
 //  - повтор того же ответа возвращает прежний результат и ничего не меняет;
 //  - сбой модели не теряет питч и ответы: срабатывает демо-движок (или 503, если запасной режим выключен).
 import { randomUUID } from 'node:crypto';
-import { personaView } from './content.mjs';
+import { personaView, validateContent } from './content.mjs';
+import { createPersonaCatalog, selectedPersonaView } from './personas.mjs';
 import { badOutput, checkAnswer, checkPitch, missingParts, authorText, noticeFor, NOTICE_BEGGING, TOTAL_STEPS, TrainerError } from './guard.mjs';
 import { buildCriteria, pickAdvice, summaryFrom, totalOf } from './scoring.mjs';
 import { createDemoEngine, reserveAdvice } from './demo.mjs';
@@ -29,6 +30,11 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
   const demo = createDemoEngine();
   const primary = engine || demo;
   const locks = new Map();
+  const catalog = createPersonaCatalog(content);
+  // Persisted content, rather than a mutable process-wide choice, owns the round.
+  // Sessions created before selection existed continue with the configured default.
+  const sessionContent = (s) => s.contentSnapshot ? validateContent(s.contentSnapshot) : content;
+  const sessionPersona = (s) => selectedPersonaView(sessionContent(s));
 
   /** Вызывает движок; при сбое — демо-движок или 503. Возвращает { data, demo }. */
   async function run(op, ctx, valid) {
@@ -99,29 +105,41 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
       reaction,
       notice,
       demo: current.demo,
+      persona: sessionPersona(s),
     };
     if (withFacts) view.facts = s.facts;
     return view;
   }
 
-  const doneView = (s) => ({ sessionId: s.id, round: s.round, status: 'done', done: true, result: s.result, demo: s.resultDemo });
+  const doneView = (s) => ({ sessionId: s.id, round: s.round, status: 'done', done: true, result: s.result, demo: s.resultDemo, persona: sessionPersona(s) });
 
   const history = (s, upTo) => s.steps.slice(0, upTo).map((q, i) => ({ step: i + 1, topic: q.topic, question: q.question, hook: q.hook, answer: s.answers[i] }));
 
   // ---- операции ------------------------------------------------------------------------------
 
-  async function start({ userId, pitch: rawPitch, previousSessionId = null }) {
+  async function start({ userId, pitch: rawPitch, previousSessionId = null, personaId }) {
+    if (personaId !== undefined && (typeof personaId !== 'string' || !personaId)) {
+      throw new TrainerError(400, 'BAD_REQUEST', 'Выберите характер инвестора из списка.');
+    }
     const { pitch, notice: pitchNotice } = checkPitch(rawPitch);
+    let selectedContent = content;
     let round = 1;
     let previousTotal = null;
     let previousQuestions = [];
     if (previousSessionId !== null && previousSessionId !== undefined && previousSessionId !== '') {
       const prev = await own(String(previousSessionId), userId);
+      selectedContent = sessionContent(prev);
+      if (personaId !== undefined && personaId !== selectedContent.persona.id) {
+        throw new TrainerError(400, 'BAD_REQUEST', 'Для сравнения результатов второй раунд проходит с тем же инвестором. Для смены характера начните новый раунд.');
+      }
       round = prev.round + 1;
       previousTotal = prev.result ? prev.result.total : null;
       previousQuestions = prev.steps.map((q) => q.question);
+    } else if (personaId !== undefined) {
+      selectedContent = catalog.get(personaId);
+      if (!selectedContent) throw new TrainerError(400, 'BAD_REQUEST', 'Неизвестный характер инвестора. Выберите вариант из списка.');
     }
-    const ctx = { content, pitch, round, previousQuestions, history: [] };
+    const ctx = { content: selectedContent, pitch, round, previousQuestions, history: [] };
     const { data, demo: isDemo } = await run('start', ctx, (d) => d && ['pitch', 'empty', 'not_pitch'].includes(d.kind));
 
     if (data.kind === 'empty') {
@@ -148,7 +166,8 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
       previousTotal,
       pitch,
       facts,
-      steps: [{ topic: content.slots[0].topic, question, hook: data.hook ?? null, demo: isDemo }],
+      contentSnapshot: selectedContent,
+      steps: [{ topic: selectedContent.slots[0].topic, question, hook: data.hook ?? null, demo: isDemo }],
       answers: [],
       replies: [],
       result: null,
@@ -165,13 +184,14 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
   async function answer(sessionId, { userId, step, answer: rawAnswer }) {
     return withLock(String(sessionId), async () => {
       const s = await own(sessionId, userId);
+      const content = sessionContent(s);
       const answered = s.replies.length;
       if (step === undefined || step === null) step = s.result ? TOTAL_STEPS + 1 : answered + 1;
       if (s.result && step > TOTAL_STEPS) throw sessionDone();
       if (!Number.isInteger(step) || step < 1 || step > TOTAL_STEPS) {
         throw new TrainerError(400, 'BAD_REQUEST', 'step должен быть целым от 1 до 5');
       }
-      if (step <= answered) return { status: 200, body: s.replies[step - 1] };
+      if (step <= answered) return { status: 200, body: { ...s.replies[step - 1], persona: sessionPersona(s) } };
       if (s.result) throw sessionDone();
       if (step !== answered + 1) throw new TrainerError(409, 'STEP_MISMATCH', `Сейчас вопрос ${answered + 1}, а не ${step}.`);
 
@@ -180,6 +200,7 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
       s.answers[step - 1] = text;
       s.answers.length = step;
       s.updatedAt = Date.now();
+      s.contentSnapshot = content;
       await store.save(s);
 
       const source = [s.pitch, ...s.answers].join('\n');
@@ -242,6 +263,10 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
   return {
     mode: primary === demo ? 'demo' : 'live',
     persona: () => personaView(content),
+    personas: () => ({
+      defaultId: catalog.has(content.persona.id) ? content.persona.id : 'angel',
+      personas: [...catalog.values()].map(selectedPersonaView),
+    }),
     start,
     answer,
     get,
