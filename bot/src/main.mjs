@@ -3,7 +3,7 @@
 import http from 'node:http';
 import { loadConfig } from './config.mjs';
 import { createTelegram, TelegramError } from './telegram.mjs';
-import { createDialog } from './dialog.mjs';
+import { createDialog, COMMANDS } from './dialog.mjs';
 import { createMockApi } from './api/mock.mjs';
 import { createHttpApi } from './api/http.mjs';
 
@@ -79,6 +79,7 @@ async function main() {
   }
 
   log('info', 'bot.started', { api: api.mode });
+  tg.setCommands(COMMANDS).catch((err) => log('warn', 'telegram.set_commands_failed', { error: err?.message }));
   let offset = 0;
   let backoffMs = 1_000;
   while (!stop.signal.aborted) {
