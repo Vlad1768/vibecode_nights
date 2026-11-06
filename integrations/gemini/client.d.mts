@@ -20,6 +20,8 @@ export interface GenerationRequest {
   prompt: string;
   system?: string;
   signal?: AbortSignal;
+  /** Base64 audio, PDF or image parts sent before the prompt (up to 4, ~18 MB in total). */
+  media?: Array<{ mimeType: string; data: string }>;
 }
 export interface GeminiResult<T> {
   data: T;

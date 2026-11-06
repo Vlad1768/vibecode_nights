@@ -350,3 +350,19 @@ test('environment factory uses supplied settings without reading real environmen
     GEMINI_API_KEY: API_KEY, GEMINI_TIMEOUT_MS: 'not-a-number',
   }), isGeminiError('CONFIG'));
 });
+
+test('media: аудио/PDF уходят как inlineData перед текстом, неверные — INPUT', async () => {
+  let sent;
+  const client = createGeminiClient({
+    apiKey: 'synthetic-key',
+    fetchImpl: async (_url, init) => {
+      sent = JSON.parse(init.body);
+      return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'расшифровка' }] } }] }), { status: 200 });
+    },
+  });
+  const r = await client.generateText({ prompt: 'Расшифруй', media: [{ mimeType: 'audio/ogg', data: 'AAAA' }] });
+  assert.equal(r.data, 'расшифровка');
+  assert.deepEqual(sent.contents[0].parts, [{ inlineData: { mimeType: 'audio/ogg', data: 'AAAA' } }, { text: 'Расшифруй' }]);
+  await assert.rejects(client.generateText({ prompt: 'x', media: [{ mimeType: 'bad', data: 'A' }] }), { code: 'INPUT' });
+  await assert.rejects(client.generateText({ prompt: 'x', media: 'nope' }), { code: 'INPUT' });
+});
