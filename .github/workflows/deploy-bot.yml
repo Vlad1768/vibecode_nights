@@ -121,7 +121,7 @@ jobs:
           # Один короткий запрос JSON — как его делает ядро. Ключ и тексты в журнал не попадают.
           node --input-type=module -e "
             import { createOpenAIClientFromEnv } from './integrations/openai/client.mjs';
-            const c = createOpenAIClientFromEnv(process.env, { timeoutMs: 60000, maxOutputTokens: 256 });
+            const c = createOpenAIClientFromEnv(process.env, { timeoutMs: 30000, maxOutputTokens: 1024 });
             const t = Date.now();
             try {
               const r = await c.generateJSON({ prompt: 'Верни JSON {\"ok\": true}', schema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] } });
