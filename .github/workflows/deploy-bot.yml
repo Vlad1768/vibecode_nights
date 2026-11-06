@@ -91,7 +91,7 @@ jobs:
             echo "systemd: $(systemctl --version 2>/dev/null | head -1 || echo нет)"
             echo "Диск:"; df -h / | tail -1
             echo "Память:"; free -m | head -2
-            echo "Сервис бота: $(systemctl is-active investor-bot 2>/dev/null || echo нет)"'
+            echo "Сервис бота: $(systemctl is-active investor-bot 2>/dev/null; true)"'
 
       - name: Выкатить бота
         if: inputs.mode == 'deploy'
