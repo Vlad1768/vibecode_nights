@@ -126,6 +126,19 @@ test('private files are not served; new stylesheet and motion modules have corre
   assert.equal(home.status, 200);
   assert.match(home.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.match((await fetch(f.base + '/app.mjs')).headers.get('content-type'), /javascript/);
+  for (const [path, mime] of [
+    ['/investor-art.css', 'text/css'],
+    ['/investor-art.mjs', 'text/javascript'],
+    ['/assets/investors/burgundy-investor.jpg', 'image/jpeg'],
+    ['/assets/investors/corporate-investor.jpg', 'image/jpeg'],
+    ['/assets/investors/green-coat-investor.jpg', 'image/jpeg'],
+  ]) {
+    const response = await fetch(f.base + path);
+    assert.equal(response.status, 200, path);
+    assert.ok(response.headers.get('content-type').startsWith(mime), path);
+    assert.ok((await response.arrayBuffer()).byteLength > 0, path);
+  }
+  assert.equal((await fetch(f.base + '/assets/investors/../../gateway.mjs')).status, 404);
 });
 
 test('upstream outages and diagnostics become a safe retry error without fake results', async (t) => {

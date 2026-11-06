@@ -4,6 +4,14 @@ set +x
 action=${1:?}; release=${2:?}; bot_host=${3:?}; bot_port=${4:?}
 [[ "$release" =~ ^[a-f0-9]{40}$ && "$bot_host" =~ ^[a-zA-Z0-9.-]+$ && "$bot_port" =~ ^[0-9]+$ ]]
 release_dir="/opt/fightinvestor/releases/$release"
+public_dir=/var/www/fightinvestor
+public_files=(
+  index.html styles.css app.mjs demo.mjs motion.css motion.mjs
+  investor-art.css investor-art.mjs
+  assets/investors/burgundy-investor.jpg
+  assets/investors/corporate-investor.jpg
+  assets/investors/green-coat-investor.jpg
+)
 tunnel_env=/etc/fightinvestor-tunnel
 case "$action" in
 prepare)
@@ -20,7 +28,7 @@ prepare)
   tar --no-same-owner -xzf /tmp/investor-shared-web.tgz -C "$release_dir"
   chmod -R a+rX,go-w "$release_dir"
   /opt/fightinvestor-node/bin/node --check "$release_dir/web/gateway.mjs"
-  for file in index.html styles.css app.mjs demo.mjs motion.css motion.mjs; do [ -s "$release_dir/web/$file" ]; done
+  for file in "${public_files[@]}"; do [ -s "$release_dir/web/$file" ]; done
   ;;
 activate)
   [ -s "$tunnel_env/known_hosts" ]
@@ -53,10 +61,20 @@ EOF
   [ "$success" = 1 ] || { echo 'Private tunnel failed; existing website remains active'; exit 1; }
   systemctl enable fightinvestor-tunnel >/dev/null
 
-  backup="/var/backups/fightinvestor/$release"
-  install -d -m 0700 "$backup" "$backup/public"
+  install -d -m 0700 /var/backups/fightinvestor
+  # A repeated activation of the same commit needs its own absence/file snapshot.
+  backup=$(mktemp -d "/var/backups/fightinvestor/$release.XXXXXX")
+  install -d -m 0700 "$backup/public"
   cp -p /etc/systemd/system/fightinvestor.service "$backup/site.service"
-  for file in index.html styles.css app.mjs demo.mjs motion.css motion.mjs; do [ ! -f "/var/www/fightinvestor/$file" ] || cp -p "/var/www/fightinvestor/$file" "$backup/public/$file"; done
+  : > "$backup/public.absent"
+  for file in "${public_files[@]}"; do
+    if [ -f "$public_dir/$file" ]; then
+      case "$file" in */*) install -d -m 0700 "$backup/public/${file%/*}" ;; esac
+      cp -p "$public_dir/$file" "$backup/public/$file"
+    else
+      printf '%s\n' "$file" >> "$backup/public.absent"
+    fi
+  done
   [ ! -f /etc/fightinvestor-gateway.env ] || cp -p /etc/fightinvestor-gateway.env "$backup/gateway.env"
   python3 - <<'PY'
 from pathlib import Path
@@ -77,7 +95,14 @@ PY
   rollback() {
     cp -p "$backup/site.service" /etc/systemd/system/fightinvestor.service
     [ ! -f "$backup/gateway.env" ] || cp -p "$backup/gateway.env" /etc/fightinvestor-gateway.env
-    for file in index.html styles.css app.mjs demo.mjs motion.css motion.mjs; do [ ! -f "$backup/public/$file" ] || cp -p "$backup/public/$file" "/var/www/fightinvestor/$file"; done
+    for file in "${public_files[@]}"; do
+      if [ -f "$backup/public/$file" ]; then
+        cp -p "$backup/public/$file" "$public_dir/$file"
+      elif grep -Fxq -- "$file" "$backup/public.absent"; then
+        # Remove only the allowlisted file that did not exist before activation.
+        rm -f -- "$public_dir/$file"
+      fi
+    done
     systemctl daemon-reload; systemctl restart fightinvestor || true
     echo 'Website restored to the previous service and static release' >&2
   }
@@ -111,7 +136,10 @@ EOF
     sleep 1
   done
   [ "$success" = 1 ]
-  for file in index.html styles.css app.mjs demo.mjs motion.css motion.mjs; do install -m 0644 "$release_dir/web/$file" "/var/www/fightinvestor/$file"; done
+  for file in "${public_files[@]}"; do
+    case "$file" in */*) install -d -m 0755 "$public_dir/${file%/*}" ;; esac
+    install -m 0644 "$release_dir/web/$file" "$public_dir/$file"
+  done
   nginx -t
   curl -fsS --max-time 5 http://127.0.0.1/api/health -H 'Host: fightinvestor.ru' |
     python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("mode") in ("demo","live")'
