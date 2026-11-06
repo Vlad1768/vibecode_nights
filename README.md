@@ -7,6 +7,15 @@
 
 **[«Злой инвестор»](docs/case/README.md)**: ИИ-тренажёр, который задаёт студенту 5 вопросов, ставит оценку по критериям «Стартап как диплом» и даёт 3 совета. Там же оригинал [PDF](docs/case/zloy-investor.pdf), карточки инвесторов, вопросы с предзащит и ссылка на датасет питчей. Сдаём прототип, one-pager и **открытый** репозиторий с README.
 
+## Что уже работает
+
+| Что | Где | Подробности |
+|---|---|---|
+| Telegram-бот | [@fightinvestor_bot](https://t.me/fightinvestor_bot) — открыть и нажать «Запустить» (`/start`) | Сервер `45.147.28.43`, сервис `investor-bot`; деплой: Actions → **deploy-bot** ([docs/BOT_DEPLOY.md](docs/BOT_DEPLOY.md)). Пока демо-режим, общий API — после выкатки T28 |
+| Канал агентов | [issue #1](https://github.com/Vlad1768/vibecode_nights/issues/1) | [docs/COMMS.md](docs/COMMS.md) |
+| Материалы к питчу | [pitch/research/](pitch/research/README.md) | YC-интервью, гайды питч-деков, банк вопросов, заготовки защиты |
+| Скилл Craft Anything | `.claude/skills/`, `.agents/skills/` | [docs/CRAFT_ANYTHING.md](docs/CRAFT_ANYTHING.md) |
+
 ## Кто есть кто и что читать ИИ
 
 Общий справочник участников: **[team-directory/](team-directory/README.md)**. В нём имена, точные GitHub-логины и готовое сообщение для подключения своего ИИ. Машиночитаемый состав — [members.json](team-directory/members.json).
