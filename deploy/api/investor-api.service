@@ -1,3 +1,4 @@
+# Managed by deploy-bot (deploy/bot/remote-install.sh); connect-trainer может заменить её своей
 [Unit]
 Description=API тренажёра «Злой инвестор» (T28/T30)
 After=network-online.target

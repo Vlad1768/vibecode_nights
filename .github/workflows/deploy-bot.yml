@@ -105,7 +105,7 @@ jobs:
       - name: Выкатить бота
         if: inputs.mode == 'deploy'
         run: |
-          tar -czf investor-bot.tgz bot core server integrations deploy
+          tar -czf investor-bot.tgz bot core server integrations deploy content/investor/assets
           sshpass -e scp -q investor-bot.tgz bot:/tmp/investor-bot.tgz
           # Настройки передаются через stdin: токен не попадает в аргументы команд и в журнал.
           {

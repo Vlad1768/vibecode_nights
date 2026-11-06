@@ -309,7 +309,7 @@ export function createDialog({ api, media = null, store = createStore(), now = (
     reset(s, 'pitch');
     const p = await persona();
     const card = p ? `Сегодня вас слушает ${p.name}, ${String(p.title ?? '').toLowerCase()}.\n\n${p.intro}` : TEXTS.welcomeFallback;
-    return [{ text: `${card}\n\n${TEXTS.askPitch}`, buttons: [[BUTTONS.template, BUTTONS.example]] }];
+    return [{ photo: 'persona', personaId: p?.id ?? null, text: `${card}\n\n${TEXTS.askPitch}`, buttons: [[BUTTONS.template, BUTTONS.example]] }];
   }
 
   const welcome = () => [{ photo: 'welcome', text: TEXTS.welcome, buttons: [[BUTTONS.practice], [BUTTONS.learn], [BUTTONS.example]] }];

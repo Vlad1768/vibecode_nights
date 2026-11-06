@@ -36,11 +36,35 @@ for u in investorbot investorapi; do
   id "$u" >/dev/null 2>&1 || useradd --system --no-create-home --home-dir "$APP_DIR" --shell /usr/sbin/nologin "$u"
 done
 
-# 3. Настройки — только из файлов, переданных через stdin ssh
+# 3. Настройки — только из файлов, переданных через stdin ssh.
+# Если API уже ведёт workflow connect-trainer (Герман, deploy/web/), его службу и ключ не трогаем.
+API_UNIT=/etc/systemd/system/investor-api.service
+EXTERNAL_API=0
+if [ -f "$API_UNIT" ] && grep -q '^# Managed by connect-trainer' "$API_UNIT"; then
+  EXTERNAL_API=1
+  log "API ведёт connect-trainer — оставляю его службу и ключ как есть"
+fi
+
+env_value() { # $1 — файл, $2 — имя
+  [ -f "$1" ] && sed -n "s/^$2=//p" "$1" | tail -1 | tr -d "\"'"
+}
+# Пустой ключ из Actions не должен стирать уже настроенный на сервере.
+KEY_ON_SERVER=$(env_value /etc/investor-api/api.env GEMINI_API_KEY || true)
+fill_key() { # $1 — новый env-файл
+  if [ -z "$(env_value "$1" GEMINI_API_KEY)" ] && [ -n "$KEY_ON_SERVER" ]; then
+    sed -i '/^GEMINI_API_KEY=/d' "$1"
+    printf 'GEMINI_API_KEY=%s\n' "$KEY_ON_SERVER" >> "$1"
+  fi
+}
+
+fill_key /tmp/investor-bot.env
 install -d -m 0750 -o root -g investorbot /etc/investor-bot
 install -m 0640 -o root -g investorbot /tmp/investor-bot.env /etc/investor-bot/bot.env
-install -d -m 0750 -o root -g investorapi /etc/investor-api
-install -m 0640 -o root -g investorapi /tmp/investor-api.env /etc/investor-api/api.env
+if [ "$EXTERNAL_API" = 0 ]; then
+  fill_key /tmp/investor-api.env
+  install -d -m 0750 -o root -g investorapi /etc/investor-api
+  install -m 0640 -o root -g investorapi /tmp/investor-api.env /etc/investor-api/api.env
+fi
 rm -f /tmp/investor-bot.env /tmp/investor-api.env
 
 # 4. Код: новая версия рядом, прошлая — в .prev для отката
@@ -55,10 +79,12 @@ rm -rf "$APP_DIR.prev"
 mv "$APP_DIR.new" "$APP_DIR"
 
 install_units() {
-  install -m 0644 "$APP_DIR/deploy/api/investor-api.service" /etc/systemd/system/investor-api.service
+  if [ "$EXTERNAL_API" = 0 ]; then
+    install -m 0644 "$APP_DIR/deploy/api/investor-api.service" "$API_UNIT"
+  fi
   install -m 0644 "$APP_DIR/deploy/bot/investor-bot.service" /etc/systemd/system/investor-bot.service
   systemctl daemon-reload
-  systemctl enable investor-api investor-bot >/dev/null 2>&1
+  systemctl enable investor-api investor-bot >/dev/null 2>&1 || true
 }
 
 healthy() { # $1 — URL
@@ -81,7 +107,9 @@ rollback() {
   rm -rf "$APP_DIR.failed"
   mv "$APP_DIR" "$APP_DIR.failed"
   mv "$APP_DIR.prev" "$APP_DIR"
-  if [ -f "$APP_DIR/deploy/api/investor-api.service" ]; then
+  if [ "$EXTERNAL_API" = 1 ]; then
+    install_units
+  elif [ -f "$APP_DIR/deploy/api/investor-api.service" ]; then
     install_units
     systemctl restart investor-api
   else
@@ -97,7 +125,9 @@ rollback() {
 install_units
 
 # 5. Сначала API, потом бот (бот ходит в API на 127.0.0.1:8080)
-systemctl restart investor-api
+if [ "$EXTERNAL_API" = 0 ]; then
+  systemctl restart investor-api
+fi
 wait_healthy investor-api http://127.0.0.1:8080/api/health || rollback
 systemctl restart investor-bot
 wait_healthy investor-bot http://127.0.0.1:8081/health || rollback

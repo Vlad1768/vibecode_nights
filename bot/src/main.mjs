@@ -15,6 +15,15 @@ import { createStore } from './store.mjs';
 import { buttonsAfterPress } from './buttons.mjs';
 import { createGeminiClientFromEnv } from '../../integrations/gemini/client.mjs';
 
+// Картинки инвесторов от Ники (content/investor/assets): id персонажа из API → файл.
+const PERSONA_IMAGES = { angel: '01-angel.jpg', corporate: '02-corporate.jpg', grant: '03-grant.jpg', venture: '04-venture.jpg' };
+const INVESTOR_ASSETS = fileURLToPath(new URL('../../content/investor/assets/', import.meta.url));
+function personaPhotoSource(id) {
+  const name = PERSONA_IMAGES[id];
+  const path = name && `${INVESTOR_ASSETS}${name}`;
+  return path && existsSync(path) ? { path, filename: name, mimeType: 'image/jpeg' } : null;
+}
+
 // Фото приветствия: BOT_WELCOME_PHOTO (file_id или https-ссылка) или файл bot/assets/welcome.{jpg,jpeg,png}.
 const ASSETS = fileURLToPath(new URL('../assets/', import.meta.url));
 function welcomePhotoSource(env) {
@@ -68,7 +77,7 @@ async function main() {
   const dialog = createDialog({ api, media, store });
 
   const welcomeSource = welcomePhotoSource(process.env);
-  let welcomeFileId = typeof welcomeSource === 'string' ? welcomeSource : null;
+  const photoIds = new Map(); // путь к файлу → file_id Telegram после первой загрузки
   // pressed — сообщение с нажатой кнопкой (для «Закрепить план» и «Сделал ✔»).
   async function sendReply(chatId, reply, pressed) {
     if (typeof reply === 'string') return tg.sendMessage(chatId, reply);
@@ -77,14 +86,18 @@ async function main() {
       return;
     }
     if (reply.action === 'markDone') return; // кнопку уже поменяли в buttonsAfterPress
-    if (reply.photo === 'welcome' && welcomeSource) {
+    const source = reply.photo === 'welcome' ? welcomeSource : reply.photo === 'persona' ? personaPhotoSource(reply.personaId) : null;
+    if (source) {
       try {
-        const photo = welcomeFileId ?? { buffer: await readFile(welcomeSource.path), filename: welcomeSource.filename, mimeType: welcomeSource.mimeType };
-        const id = await tg.sendPhoto(chatId, photo, { caption: reply.text, buttons: reply.buttons });
-        if (!welcomeFileId && id) welcomeFileId = id;
-        return;
+        const key = typeof source === 'string' ? source : source.path;
+        const photo = typeof source === 'string' ? source : photoIds.get(key) ?? { buffer: await readFile(source.path), filename: source.filename, mimeType: source.mimeType };
+        // Подпись к фото — до 1024 знаков; длиннее — фото отдельно, текст с кнопками следом.
+        const fits = reply.text.length <= 1024;
+        const id = await tg.sendPhoto(chatId, photo, fits ? { caption: reply.text, buttons: reply.buttons } : {});
+        if (id && typeof source !== 'string') photoIds.set(key, id);
+        if (fits) return;
       } catch (err) {
-        log('warn', 'welcome.photo_failed', { error: err?.message });
+        log('warn', 'photo.failed', { kind: reply.photo, error: err?.message });
       }
     }
     return tg.sendMessage(chatId, reply.text, { buttons: reply.buttons, html: reply.html });
