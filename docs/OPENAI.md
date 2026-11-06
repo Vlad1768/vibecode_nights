@@ -113,3 +113,7 @@ node --test integrations/openai/*.test.mjs core/*.test.mjs server/*.test.mjs
 
 Официальные источники: [модель Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol),
 [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+## Фактическая проверка 6 ноября 2026
+
+Деплой API: [успешный запуск 42264016201](https://github.com/Vlad1768/vibecode_nights/actions/runs/42264016201). Публикация оформления: [42263602072](https://github.com/Vlad1768/vibecode_nights/actions/runs/42263602072). На публичном сайте пройден новый синтетический питч: все пять вопросов и итог получили demo:false, показаны десять критериев и три совета, итог восстановился после перезагрузки. Ошибок JavaScript не было. Мобильный экран 390 px проверен в браузере. Это проверка сценария, не измерение качества оценок и не пилот на реальных студентах.
