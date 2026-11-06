@@ -51,7 +51,7 @@ done
 tar -czf "$work/web.tgz" web
 SSHPASS="$SITE_PASSWORD" sshpass -e scp -F "$work/config" -q "$work/web.tgz" site:/tmp/investor-shared-web.tgz
 if [ "$MODE" = connect ]; then
-tar -czf "$work/api.tgz" server core integrations/gemini
+tar -czf "$work/api.tgz" server core integrations
 SSHPASS="$BOT_PASSWORD" sshpass -e scp -F "$work/config" -q "$work/api.tgz" bot:/tmp/investor-shared-api.tgz
 bot "bash -s -- prepare '$RELEASE_ID' '$SITE_HOST'" < deploy/web/remote-bot.sh
 

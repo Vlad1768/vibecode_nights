@@ -6,7 +6,7 @@
 
 ```bash
 node server/index.mjs                          # http://127.0.0.1:8080, режим demo (без модели)
-node --env-file=.env.local server/index.mjs    # с GEMINI_API_KEY — режим live
+node --env-file=.env.local server/index.mjs    # с OPENAI_API_KEY или GEMINI_API_KEY — режим live
 curl http://127.0.0.1:8080/api/health          # {"ok":true,"mode":"demo","version":"1.0"}
 ```
 
@@ -18,7 +18,8 @@ API занимает тот же адрес, что и `contract/mock-server.mjs
 |---|---|---|
 | `PORT`, `HOST` | `8080`, `127.0.0.1` | Где слушать. Снаружи API открывает Caddy по пути `/api` |
 | `OPENAI_API_KEY` | — | Ключ ChatGPT (OpenAI) — основной провайдер. Выбор провайдера — `integrations/llm.mjs` |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | Модель OpenAI; деплой бота выбирает доступную ключу автоматически |
+| `OPENAI_MODEL` | `gpt-6.1-sol` | Sol выбран Германом; закреплён в Actions Variable. Инструкция — [docs/OPENAI.md](../docs/OPENAI.md) |
+| `OPENAI_MAX_OUTPUT_TOKENS`, `OPENAI_REASONING_EFFORT`, `OPENAI_TIMEOUT_MS` | `8192`, `low`, `30000` | Бюджет для структурированного итога, усилие рассуждения и тайм-аут |
 | `GEMINI_API_KEY` | — | Запасной провайдер, если нет `OPENAI_API_KEY`. Без обоих ключей режим `demo` |
 | `LLM_PROVIDER` | — | `openai` или `gemini`, если заданы оба ключа |
 | `GEMINI_MODEL`, `GEMINI_TIMEOUT_MS` | `gemini-4-argon`, `30000` | Как в [docs/GEMINI.md](../docs/GEMINI.md) |

@@ -8,6 +8,23 @@ root=/opt/investor-api
 release_dir="$root/releases/$release"
 env_file=/etc/investor-api/api.env
 unit=/etc/systemd/system/investor-api.service
+# This installer builds a Gemini-only env. Never replace a selected OpenAI API;
+# attaching the website remains safe and deliberately does not call this guard.
+require_gemini_install() {
+  python3 - "$env_file" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+values = {}
+if p.exists():
+    for line in p.read_text().splitlines():
+        if '=' in line:
+            key, value = line.split('=', 1)
+            values[key.strip()] = value.strip().strip('"').strip("'")
+if any(values.get(name, '').lower() == 'openai' for name in ['LLM_PROVIDER', 'AI_PROVIDER']) or values.get('OPENAI_API_KEY'):
+    raise SystemExit('OpenAI is already configured: use deploy-bot for API updates and attach for the website; connect will not replace it.')
+PY
+}
 healthy() {
   curl -fsS --max-time 5 http://127.0.0.1:8080/api/health |
     python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("mode")=="live"'
@@ -36,6 +53,7 @@ PY
   ;;
 prepare)
   [ "$(id -u)" = 0 ]
+  require_gemini_install
   [ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 22 ]
   systemctl is-active --quiet investor-bot || { echo 'Existing bot must be active before connecting'; exit 1; }
   if [ -f "$unit" ] && ! grep -qE '^# Managed by (connect-trainer|deploy-bot)' "$unit"; then
@@ -53,6 +71,7 @@ prepare)
   node --check "$release_dir/server/index.mjs"
   ;;
 activate)
+  require_gemini_install
   [ -s /etc/investor-api/api.env.next ]
   [ -d "$release_dir" ]
   backup="/etc/investor-api/backup-$release"

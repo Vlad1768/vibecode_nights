@@ -34,7 +34,9 @@ export function createApp(settings = env) {
   const live = settings.DEMO_MODE !== '1' && Boolean(llmProvider(settings));
   const engine = live
     ? createLlmEngine(createLlmClientFromEnv(settings, {
-      maxOutputTokens: Math.max(Number(settings.OPENAI_MAX_OUTPUT_TOKENS || settings.GEMINI_MAX_OUTPUT_TOKENS || 0), 2048),
+      maxOutputTokens: llmProvider(settings) === 'openai'
+        ? Number(settings.OPENAI_MAX_OUTPUT_TOKENS || 8192)
+        : Math.max(Number(settings.GEMINI_MAX_OUTPUT_TOKENS || 0), 2048),
       maxInputChars: 30000,
     }))
     : null;

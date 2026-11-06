@@ -5,12 +5,13 @@
 // media: [{ mimeType, data(base64) }] — PDF уходит файлом, картинки — image_url.
 // Ключ не логируется и не попадает в тексты ошибок; автоматических повторов нет.
 import { env } from 'node:process';
+import { createOpenAIClient as createResponsesClient, OpenAIError as ResponsesError } from './responses.mjs';
 
 if (typeof window !== 'undefined') {
   throw new Error('OpenAI client must run on the server.');
 }
 
-export const DEFAULT_MODEL = 'gpt-4.1-mini';
+export const DEFAULT_MODEL = 'gpt-6.1-sol';
 export const DEFAULT_TRANSCRIBE_MODEL = 'whisper-1';
 const DEFAULT_BASE = 'https://api.openai.com/v1';
 const MAX_MEDIA_BASE64 = 18 * 1024 * 1024;
@@ -52,7 +53,7 @@ function httpError(status) {
 }
 
 // Модели с рассуждениями (gpt-5*, o*) тратят часть лимита на рассуждения и не принимают temperature.
-export const isReasoningModel = (model) => /^(gpt-5|o\d)/i.test(model);
+export const isReasoningModel = (model) => /^(gpt-[56]|o\d)/i.test(model);
 // Классические модели без рассуждений; для остальных (в т. ч. новых gpt-6*) даём запас токенов.
 const isClassicModel = (model) => /^(gpt-4|gpt-3)/i.test(model);
 
@@ -72,17 +73,19 @@ export function createOpenAIClient({
   transcribeModel = DEFAULT_TRANSCRIBE_MODEL,
   baseUrl = DEFAULT_BASE,
   timeoutMs = 30000,
-  maxOutputTokens = 1024,
-  maxInputChars = 20000,
+  maxOutputTokens = 8192,
+  maxInputChars = 30000,
+  reasoningEffort = 'low',
   fetchImpl = globalThis.fetch,
 } = {}) {
-  if (typeof apiKey !== 'string' || !apiKey.trim()
+  if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n]/.test(apiKey)
     || typeof model !== 'string' || !/^[a-zA-Z0-9._:-]+$/.test(model)
     || typeof transcribeModel !== 'string' || !/^[a-zA-Z0-9._:-]+$/.test(transcribeModel)
     || typeof baseUrl !== 'string' || !/^https:\/\/[^\s]+$/.test(baseUrl)
     || !integer(timeoutMs, 1, 300000)
     || !integer(maxOutputTokens, 1, 32768)
     || !integer(maxInputChars, 1, 200000)
+    || !['low', 'medium', 'high', 'xhigh', 'max'].includes(reasoningEffort)
     || typeof fetchImpl !== 'function') {
     throw new OpenAIError('CONFIG');
   }
@@ -122,6 +125,21 @@ export function createOpenAIClient({
       || media.reduce((sum, m) => sum + m.data.length, 0) > MAX_MEDIA_BASE64) {
       throw new OpenAIError('INPUT');
     }
+    // The trainer sends text-only JSON. Keep Ivan's media/text/transcription routes,
+    // but use strict Responses output and local schema checks for the shared core.
+    if (jsonMode && media.length === 0) {
+      if (root !== DEFAULT_BASE) throw new OpenAIError('CONFIG');
+      try {
+        const responses = createResponsesClient({ apiKey, model, timeoutMs, maxOutputTokens,
+          maxInputChars, reasoningEffort: isReasoningModel(model) ? reasoningEffort : null, fetchImpl });
+        return await responses.generateJSON({ prompt, system, schema, signal });
+      } catch (error) {
+        if (error instanceof ResponsesError) {
+          throw new OpenAIError(error.code, { httpStatus: error.httpStatus, retryable: error.retryable });
+        }
+        throw new OpenAIError('RESPONSE');
+      }
+    }
     const reasoning = isReasoningModel(model);
     const messages = [];
     if (system) messages.push({ role: 'system', content: system });
@@ -131,9 +149,9 @@ export function createOpenAIClient({
       messages,
       n: 1,
       // У моделей с рассуждениями лимит включает рассуждения — даём запас (и новым моделям на всякий случай).
-      max_completion_tokens: isClassicModel(model) ? maxOutputTokens : Math.max(maxOutputTokens * 4, 8192),
+      max_completion_tokens: isClassicModel(model) ? maxOutputTokens : Math.max(maxOutputTokens, 8192),
     };
-    if (reasoning) body.reasoning_effort = 'low';
+    if (reasoning) body.reasoning_effort = reasoningEffort;
     if (jsonMode) body.response_format = { type: 'json_schema', json_schema: { name: 'response', schema, strict: false } };
 
     const payload = await send('/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, signal);
@@ -194,7 +212,8 @@ export function createOpenAIClientFromEnv(settings = env, overrides = {}) {
     transcribeModel: settings.OPENAI_TRANSCRIBE_MODEL || DEFAULT_TRANSCRIBE_MODEL,
     baseUrl: settings.OPENAI_BASE_URL || DEFAULT_BASE,
     timeoutMs: Number(settings.OPENAI_TIMEOUT_MS || 30000),
-    maxOutputTokens: Number(settings.OPENAI_MAX_OUTPUT_TOKENS || 1024),
+    maxOutputTokens: Number(settings.OPENAI_MAX_OUTPUT_TOKENS || 8192),
+    reasoningEffort: settings.OPENAI_REASONING_EFFORT || 'low',
     ...overrides,
   });
 }
