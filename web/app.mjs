@@ -313,13 +313,13 @@ function renderApiStatus() {
     dom.apiBadge.textContent = 'ИИ временно недоступен · доступно демо';
   } else if (apiMode === 'demo') {
     dom.apiBadge.classList.add('status-badge--offline');
-    dom.apiBadge.textContent = 'Учебный API · без модели';
+    dom.apiBadge.textContent = 'Учебный режим · без ИИ';
   } else if (apiMode === 'live') {
     dom.apiBadge.classList.add('status-badge--ready');
-    dom.apiBadge.textContent = 'Gemini Argon · общий API';
+    dom.apiBadge.textContent = 'Gemini Argon · режим ИИ';
   } else {
     dom.apiBadge.classList.add('status-badge--offline');
-    dom.apiBadge.textContent = apiMode === 'unknown' ? 'Проверяем общий API…' : 'Общий API недоступен · доступно демо';
+    dom.apiBadge.textContent = apiMode === 'unknown' ? 'Проверяем связь…' : 'Нет связи · доступно демо';
   }
   dom.apiDemoBanner.hidden = state.mode === 'demo' || !(apiMode === 'demo' || state.backendDemo);
 }
@@ -1014,7 +1014,7 @@ function exitDemoToLive() {
   saveState();
   renderApp();
   (state.stage === 'qa' ? dom.answerInput : dom.pitchInput).focus();
-  announce('Вы вернулись в основной режим Gemini Argon.');
+  announce('Вы вернулись к своему раунду.');
   if (state.stage !== 'pitch') void recoverSession();
 }
 
