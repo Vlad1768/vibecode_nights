@@ -101,3 +101,15 @@ test('сообщение Telegram превращается во вход диа�
   assert.equal(inputFromMessage({ document: { file_id: 'd', file_name: 'a.pdf' } }).media.fileName, 'a.pdf');
   assert.equal(inputFromMessage({ photo: [{ file_id: 's' }, { file_id: 'big' }] }).media.fileId, 'big');
 });
+
+test('OpenAI: голос идёт через transcribe, а не через чат', async () => {
+  const seen = [];
+  const llm = {
+    transcribe: async ({ mimeType, filename }) => { seen.push([mimeType, filename]); return { data: ' Питч голосом, 5 клиентов. ' }; },
+    generateText: async () => { throw new Error('не должен вызываться для голоса'); },
+  };
+  const r = createMediaReader({ gemini: llm, download: async () => ({ buffer: Buffer.from('OggS') }) });
+  const out = await r.toText({ kind: 'voice', fileId: 'v', mimeType: 'audio/ogg' });
+  assert.equal(out.text, 'Питч голосом, 5 клиентов.');
+  assert.deepEqual(seen, [['audio/ogg', 'voice.ogg']]);
+});

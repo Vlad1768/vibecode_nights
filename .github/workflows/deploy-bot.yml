@@ -29,8 +29,8 @@ jobs:
       - name: Тесты бота
         working-directory: bot
         run: npm test
-      - name: Тесты API, ядра и клиента Gemini
-        run: node --test core/*.test.mjs server/*.test.mjs integrations/gemini/*.test.mjs
+      - name: Тесты API, ядра и клиентов моделей
+        run: node --test core/*.test.mjs server/*.test.mjs integrations/gemini/*.test.mjs integrations/openai/*.test.mjs
 
   deploy:
     needs: test
@@ -45,7 +45,9 @@ jobs:
       BOT_TELEGRAM_TOKEN: ${{ secrets.BOT_TELEGRAM_TOKEN }}
       # Пусто — бот ходит в API на этом же сервере.
       TRAINER_API_URL: ${{ vars.TRAINER_API_URL || 'http://127.0.0.1:8080' }}
-      # Без ключа API работает в режиме demo, а бот не распознаёт голос, PDF и фото.
+      # Модель: OPENAI_API_KEY (ChatGPT, основной) или GEMINI_API_KEY. Без ключей API в demo, бот не распознаёт голос/PDF/фото.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-4-argon' }}
     steps:
@@ -92,6 +94,27 @@ jobs:
             v="V_$n"; echo "Variable $n: ${!v:-нет}"
           done
 
+      - name: Выбор модели OpenAI
+        if: env.OPENAI_API_KEY != ''
+        run: |
+          # Без Variable OPENAI_MODEL берём первую доступную ключу модель из списка (имя модели — не секрет).
+          code=$(curl -s -o models.json -w '%{http_code}' https://api.openai.com/v1/models -H "Authorization: Bearer $OPENAI_API_KEY")
+          if [ "$code" != 200 ]; then echo "::error::OpenAI отклонил ключ (HTTP $code)"; rm -f models.json; exit 1; fi
+          chosen=$(python3 - "$OPENAI_MODEL" <<'PY'
+          import json, sys
+          ids = {m.get('id') for m in json.load(open('models.json')).get('data', [])}
+          wanted = sys.argv[1]
+          if wanted:
+              print(wanted if wanted in ids else ''); raise SystemExit
+          for m in ['gpt-4.1-mini', 'gpt-4o-mini', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o', 'gpt-5']:
+              if m in ids: print(m); break
+          PY
+          )
+          rm -f models.json
+          [ -n "$chosen" ] || { echo "::error::Нет подходящей модели OpenAI (Variable OPENAI_MODEL или список по умолчанию)"; exit 1; }
+          echo "Модель OpenAI: $chosen"
+          echo "OPENAI_MODEL=$chosen" >> "$GITHUB_ENV"
+
       - name: SSH-клиент и ключ хоста
         run: |
           sudo apt-get install -y -qq sshpass >/dev/null
@@ -124,7 +147,7 @@ jobs:
             echo "Сервис бота: $(systemctl is-active investor-bot 2>/dev/null; true)"
             echo "Сервис API: $(systemctl is-active investor-api 2>/dev/null; true)"
             echo "Порты 8080/8081:"; ss -ltnp 2>/dev/null | grep -E ":(8080|8081)\\b" || echo "свободны"'
-          [ -n "$GEMINI_API_KEY" ] && echo "Ключ Gemini: задан" || echo "::warning::Secret GEMINI_API_KEY не задан — API в режиме demo, голос/PDF/фото в боте не распознаются"
+          if [ -n "$OPENAI_API_KEY" ]; then echo "Модель: OpenAI ($OPENAI_MODEL)"; elif [ -n "$GEMINI_API_KEY" ]; then echo "Модель: Gemini"; else echo "::warning::Нет OPENAI_API_KEY и GEMINI_API_KEY — API в режиме demo, голос/PDF/фото в боте не распознаются"; fi
 
       - name: Выкатить бота
         if: inputs.mode == 'deploy'
@@ -137,11 +160,15 @@ jobs:
             printf 'BOT_HEALTH_PORT=8081\n'
             printf 'TRAINER_API_URL=%s\n' "$TRAINER_API_URL"
             printf 'NODE_ENV=production\n'
+            printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
+            printf 'OPENAI_MODEL=%s\n' "$OPENAI_MODEL"
             printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY"
             printf 'GEMINI_MODEL=%s\n' "$GEMINI_MODEL"
           } | sshpass -e ssh bot 'umask 077; cat > /tmp/investor-bot.env'
           {
             printf 'NODE_ENV=production\n'
+            printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
+            printf 'OPENAI_MODEL=%s\n' "$OPENAI_MODEL"
             printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY"
             printf 'GEMINI_MODEL=%s\n' "$GEMINI_MODEL"
           } | sshpass -e ssh bot 'umask 077; cat > /tmp/investor-api.env'

@@ -1,5 +1,5 @@
 // Превращает голосовое, файл или фото из Telegram в текст для API.
-// TXT/MD/DOCX/PPTX читаются локально, голос, PDF и картинки — через Gemini (integrations/gemini).
+// TXT/MD/DOCX/PPTX читаются локально, голос, PDF и картинки — моделью из integrations/llm.mjs (ChatGPT или Gemini).
 // Контракт API не меняется: дальше уходит обычный текст питча или ответа.
 import { inflateRawSync } from 'node:zlib';
 
@@ -140,6 +140,12 @@ export function createMediaReader({ gemini = null, download, maxChars = 4000 }) 
   async function ask(prompt, mimeType, buffer) {
     if (!gemini) throw fail('NO_RECOGNITION');
     try {
+      // У OpenAI голос распознаётся отдельной моделью речи, у Gemini — тем же запросом с аудио.
+      if (mimeType.startsWith('audio/') && typeof gemini.transcribe === 'function') {
+        const ext = mimeType.includes('mpeg') ? 'mp3' : mimeType.includes('mp4') || mimeType.includes('m4a') ? 'm4a' : mimeType.includes('wav') ? 'wav' : 'ogg';
+        const { data } = await gemini.transcribe({ buffer, mimeType, filename: `voice.${ext}` });
+        return clean(data);
+      }
       const { data } = await gemini.generateText({ prompt, media: [{ mimeType, data: buffer.toString('base64') }] });
       return clean(data);
     } catch (err) {

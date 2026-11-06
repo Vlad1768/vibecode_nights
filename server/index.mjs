@@ -2,7 +2,7 @@
 // API «Злой инвестор» (T28): общее ядро для сайта и бота.
 //
 //   node server/index.mjs                                   → http://127.0.0.1:8080, режим demo
-//   node --env-file=.env.local server/index.mjs             → с ключом Gemini, режим live
+//   node --env-file=.env.local server/index.mjs             → с ключом OpenAI или Gemini, режим live
 //
 // Настройки — переменные окружения, полный список в server/README.md.
 import { createServer } from 'node:http';
@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { loadContent } from '../core/content.mjs';
 import { createTrainer } from '../core/trainer.mjs';
 import { createLlmEngine } from '../core/llm.mjs';
-import { createGeminiClientFromEnv } from '../integrations/gemini/client.mjs';
+import { createLlmClientFromEnv, llmProvider } from '../integrations/llm.mjs';
 import { createFileStore } from './store.mjs';
 import { createHandler } from './handler.mjs';
 
@@ -30,10 +30,11 @@ export function createApp(settings = env) {
   };
 
   const content = loadContent(settings.CONTENT_FILE);
-  const live = settings.DEMO_MODE !== '1' && Boolean(settings.GEMINI_API_KEY);
+  // Провайдер модели: OPENAI_API_KEY → ChatGPT, иначе GEMINI_API_KEY → Gemini (integrations/llm.mjs).
+  const live = settings.DEMO_MODE !== '1' && Boolean(llmProvider(settings));
   const engine = live
-    ? createLlmEngine(createGeminiClientFromEnv(settings, {
-      maxOutputTokens: Math.max(Number(settings.GEMINI_MAX_OUTPUT_TOKENS || 0), 2048),
+    ? createLlmEngine(createLlmClientFromEnv(settings, {
+      maxOutputTokens: Math.max(Number(settings.OPENAI_MAX_OUTPUT_TOKENS || settings.GEMINI_MAX_OUTPUT_TOKENS || 0), 2048),
       maxInputChars: 30000,
     }))
     : null;

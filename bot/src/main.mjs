@@ -13,7 +13,7 @@ import { createMediaReader } from './media.mjs';
 import { inputFromMessage } from './input.mjs';
 import { createStore } from './store.mjs';
 import { buttonsAfterPress } from './buttons.mjs';
-import { createGeminiClientFromEnv } from '../../integrations/gemini/client.mjs';
+import { createLlmClientFromEnv, llmProvider } from '../../integrations/llm.mjs';
 
 // Картинки инвесторов от Ники (content/investor/assets): id персонажа из API → файл.
 const PERSONA_IMAGES = { angel: '01-angel.jpg', corporate: '02-corporate.jpg', grant: '03-grant.jpg', venture: '04-venture.jpg' };
@@ -62,16 +62,15 @@ async function main() {
   if (api.mode === 'mock') log('warn', 'api.mock', { hint: 'TRAINER_API_URL не задан — демо-режим' });
 
   const tg = createTelegram({ token: config.token, baseUrl: config.telegramApiBase });
-  let gemini = null;
-  if (process.env.GEMINI_API_KEY) {
-    try {
-      gemini = createGeminiClientFromEnv(process.env, { timeoutMs: 60_000, maxOutputTokens: 4096 });
-    } catch (err) {
-      log('warn', 'gemini.config_invalid', { error: err?.code ?? err?.message });
-    }
+  // Распознавание голоса, PDF и фото — той же моделью, что у API: OPENAI_API_KEY (ChatGPT) или GEMINI_API_KEY.
+  let llm = null;
+  try {
+    llm = createLlmClientFromEnv(process.env, { timeoutMs: 60_000, maxOutputTokens: 4096 });
+  } catch (err) {
+    log('warn', 'llm.config_invalid', { error: err?.code ?? err?.message });
   }
-  if (!gemini) log('warn', 'media.no_recognition', { hint: 'GEMINI_API_KEY не задан — голос, PDF и фото не распознаются' });
-  const media = createMediaReader({ gemini, download: (fileId, max) => tg.downloadFile(fileId, max) });
+  if (!llm) log('warn', 'media.no_recognition', { hint: 'нет OPENAI_API_KEY/GEMINI_API_KEY — голос, PDF и фото не распознаются' });
+  const media = createMediaReader({ gemini: llm, download: (fileId, max) => tg.downloadFile(fileId, max) });
   // BOT_DATA_DIR — куда сохранять прошлые раунды и напоминания (на сервере /var/lib/investor-bot).
   const store = createStore({ dir: process.env.BOT_DATA_DIR || null });
   const dialog = createDialog({ api, media, store });
@@ -162,7 +161,7 @@ async function main() {
   }, 60_000);
   reminderTimer.unref();
 
-  log('info', 'bot.started', { api: api.mode, recognition: !!gemini, welcomePhoto: !!welcomeSource });
+  log('info', 'bot.started', { api: api.mode, recognition: llm ? llmProvider(process.env) : false, welcomePhoto: !!welcomeSource });
   tg.setCommands(COMMANDS).catch((err) => log('warn', 'telegram.set_commands_failed', { error: err?.message }));
   let offset = 0;
   let backoffMs = 1_000;

@@ -13,7 +13,8 @@ API (`server/` + `core/`, T28) и бот (`bot/`, T27) выкатываются 
 | `BOT_SERVER_PASSWORD` | Secret | SSH-пароль (задан Германом) |
 | `BOT_TELEGRAM_TOKEN` | Secret | Токен бота от @BotFather |
 | `BOT_SERVER_PORT` | Variable, необязательно | SSH-порт, по умолчанию 22 |
-| `GEMINI_API_KEY` | Secret | Ключ Gemini. С ним API работает с моделью (`live`), а бот распознаёт голосовые, PDF и фото. Без него — API в `demo`, бот принимает только текст, DOCX, PPTX, TXT |
+| `OPENAI_API_KEY` | Secret | Ключ ChatGPT (OpenAI) — основной. С ним API работает с моделью (`live`), а бот распознаёт голосовые (речь OpenAI), PDF и фото. Модель выбирается автоматически из доступных ключу (`gpt-4.1-mini`, `gpt-4o-mini`, `gpt-5-mini`…) или Variable `OPENAI_MODEL` |
+| `GEMINI_API_KEY` | Secret, запасной | Используется, только если нет `OPENAI_API_KEY` |
 | `GEMINI_MODEL` | Variable, необязательно | По умолчанию `gemini-4-argon` (docs/GEMINI.md) |
 | `TRAINER_API_URL` | Variable, необязательно | Адрес API для бота. По умолчанию `http://127.0.0.1:8080` — API на этом же сервере |
 

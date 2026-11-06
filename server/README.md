@@ -17,7 +17,10 @@ API занимает тот же адрес, что и `contract/mock-server.mjs
 | Переменная | По умолчанию | Что делает |
 |---|---|---|
 | `PORT`, `HOST` | `8080`, `127.0.0.1` | Где слушать. Снаружи API открывает Caddy по пути `/api` |
-| `GEMINI_API_KEY` | — | Ключ модели. Без него режим `demo` |
+| `OPENAI_API_KEY` | — | Ключ ChatGPT (OpenAI) — основной провайдер. Выбор провайдера — `integrations/llm.mjs` |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | Модель OpenAI; деплой бота выбирает доступную ключу автоматически |
+| `GEMINI_API_KEY` | — | Запасной провайдер, если нет `OPENAI_API_KEY`. Без обоих ключей режим `demo` |
+| `LLM_PROVIDER` | — | `openai` или `gemini`, если заданы оба ключа |
 | `GEMINI_MODEL`, `GEMINI_TIMEOUT_MS` | `gemini-4-argon`, `30000` | Как в [docs/GEMINI.md](../docs/GEMINI.md) |
 | `GEMINI_MAX_OUTPUT_TOKENS` | не меньше `2048` | Итог раунда длинный, меньше 2048 API не ставит |
 | `DEMO_MODE` | — | `1` — не ходить в модель даже с ключом |

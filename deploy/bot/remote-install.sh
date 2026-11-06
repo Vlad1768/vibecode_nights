@@ -48,13 +48,15 @@ fi
 env_value() { # $1 — файл, $2 — имя
   [ -f "$1" ] && sed -n "s/^$2=//p" "$1" | tail -1 | tr -d "\"'"
 }
-# Пустой ключ из Actions не должен стирать уже настроенный на сервере.
-KEY_ON_SERVER=$(env_value /etc/investor-api/api.env GEMINI_API_KEY || true)
+# Пустой ключ из Actions не должен стирать уже настроенный на сервере (OpenAI и Gemini).
 fill_key() { # $1 — новый env-файл
-  if [ -z "$(env_value "$1" GEMINI_API_KEY)" ] && [ -n "$KEY_ON_SERVER" ]; then
-    sed -i '/^GEMINI_API_KEY=/d' "$1"
-    printf 'GEMINI_API_KEY=%s\n' "$KEY_ON_SERVER" >> "$1"
-  fi
+  for name in OPENAI_API_KEY GEMINI_API_KEY; do
+    on_server=$(env_value /etc/investor-api/api.env "$name" || true)
+    if [ -z "$(env_value "$1" "$name")" ] && [ -n "$on_server" ]; then
+      sed -i "/^$name=/d" "$1"
+      printf '%s=%s\n' "$name" "$on_server" >> "$1"
+    fi
+  done
 }
 
 fill_key /tmp/investor-bot.env
