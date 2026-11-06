@@ -1,8 +1,8 @@
 // Оценка и советы. Модель (или демо-движок) даёт только уровни 0–3, цитаты и тексты.
 // Итог, проверку цитат и отбраковку советов делает этот код (docs/CONTRACT.md, раздел 8).
 import { CRITERIA_NAMES } from './content.mjs';
-import { capitalize, clean, limit, normalize, quoteFound } from './text.mjs';
-import { noticeFor } from './guard.mjs';
+import { capitalize, clean, limit, normalize, numbersCovered, quoteFound } from './text.mjs';
+import { badOutput, noticeFor } from './guard.mjs';
 
 export const round1 = (x) => Math.round(x * 10) / 10;
 
@@ -22,7 +22,8 @@ export function buildCriteria(raw, weights, source) {
     const r = byId.get(id) || {};
     let level = Number.isInteger(r.level) && r.level >= 0 && r.level <= 3 ? r.level : 0;
     let evidence = clean(r.evidence) || null;
-    let comment = limit(r.comment, 240) || (level ? 'Оценено по питчу и ответам.' : NO_DATA);
+    const given = limit(r.comment, 240);
+    let comment = given && !badOutput(given) && numbersCovered(given, source) ? given : (level ? 'Оценено по питчу и ответам.' : NO_DATA);
     // Цитата должна быть в тексте студента и не быть уговором («поставьте высокий балл»).
     if (level > 0 && !(evidence && quoteFound(evidence, source) && !noticeFor(evidence))) {
       level = 0;
@@ -56,6 +57,7 @@ export function adviceProblem(a, stopPhrases) {
   if (!validDeadline(a.deadline)) return 'нет срока или дольше недели';
   const text = normalize(`${action} ${doneWhen}`);
   if (stopPhrases.some((p) => text.includes(normalize(p)))) return 'стоп-фраза';
+  if (badOutput(`${action} ${doneWhen}`)) return 'выдуманные данные или грубость';
   return null;
 }
 
