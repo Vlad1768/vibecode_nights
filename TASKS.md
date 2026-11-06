@@ -96,7 +96,7 @@ T4–T18 описывают прежний шаблон генератора к�
 
 | T55 | По просьбе Германа исправить обрезку трёх боковых инвесторов: персонажи видны целиком на desktop и телефоне, не закрывают интерфейс | `web/investor-art.css`, `web/README.md`; запуск существующего workflow сайта | T48 | готово: Герман-Codex | Убраны маски и обрезка фигур, рамки с запасом под движение. Browser320/390/1200/1440px без перекрытия текста; опубликовано attach42264984420, публичные3JPG загружены и видны целиком. |
 
-| T56 | Проверка безопасности и антиспама сайта по поручению Германа; исправить подтверждённые обходы лимитов и защиту HTTP, проверить локально и на публикации | `web/gateway.mjs`, `web/gateway.test.mjs`, `web/abuse*.mjs`, `server/handler.mjs`, `server/*test.mjs`, `core/trainer.mjs`, `core/privacy.test.mjs`, `deploy/web/`, `docs/SECURITY_REVIEW.md` | T46 | в работе: Герман-Codex | Без нагрузки на боевой сайт; проверки изоляции, Origin, XSS, секретов, HTTPS и стоимости вызовов; сохранить параллельные UI/персонажи. |
+| T56 | Проверка безопасности и антиспама сайта по поручению Германа; исправить подтверждённые обходы лимитов и защиту HTTP, проверить локально и на публикации | `web/gateway.mjs`, `web/gateway.test.mjs`, `web/abuse*.mjs`, `server/handler.mjs`, `server/*test.mjs`, `core/trainer.mjs`, `core/privacy.test.mjs`, `deploy/web/`, `docs/SECURITY_REVIEW.md` | T46 | готово: Герман-Codex | Исправлены гонка/обход квоты и восстановление удалённых сессий; IP/global/concurrency limits, HTTPS+renewal+CSP. 117 core/server/web тестов; public HTTPS smoke: 308, Secure cookie, чужой Origin403/сессия404, удаление404, живой ИИ без ошибок. Отчёт docs/SECURITY_REVIEW.md; deploy42266376222/attach42266381040 успешны. |
 
 ## Журнал решений
 

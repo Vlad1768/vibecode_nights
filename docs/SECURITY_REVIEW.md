@@ -79,3 +79,7 @@ CAPTCHA/WAF/CDN и защита сети хостера от объёмного 
 
 Основание для выбора мер: [OWASP REST Security](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html)
 и [OWASP Denial of Service](https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html).
+
+## Фактическая публикация и внешняя проверка
+
+[API42266376222](https://github.com/Vlad1768/vibecode_nights/actions/runs/42266376222) и [сайт/TLS42266381040](https://github.com/Vlad1768/vibecode_nights/actions/runs/42266381040) завершились успешно. Установлен системный Certbot; таймер продления активен, hook проверяет и перечитывает nginx. Проверено из внешнего браузера на https://fightinvestor.ru: доверенныйTLS, HTTP308→HTTPS, CSP/HSTS без дублирования, cookieSecure/HttpOnly/SameSiteStrict. ЧужойOrigin получил403, чужая и удалённая сессии404. Новый питч получил первый реальный вопрос (demo:false); тестовая сессия затем удалена. ОшибокJavaScript нет. Последний полный локальный прогон core/server/web — 117/117; отдельно новые проверки антиспама и удаления входят в этот набор. Полноценная DDoS-атака не проводилась.
