@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "updated_on": "2026-11-06",
+  "repository": "Vlad1768/vibecode_nights",
+  "names_confirmed_by": "Герман",
+  "members": [
+    {
+      "person_id": "vlad",
+      "name": "Влад",
+      "github_accounts": [
+        { "login": "Vlad1768", "url": "https://github.com/Vlad1768" }
+      ],
+      "role": "owner",
+      "focus": null,
+      "aliases": ["влад", "владелец"]
+    },
+    {
+      "person_id": "german",
+      "name": "Герман",
+      "github_accounts": [
+        { "login": "YourRussianComrade", "url": "https://github.com/YourRussianComrade" }
+      ],
+      "role": "member",
+      "focus": "Независимое ревью и поиск багов",
+      "aliases": ["герман", "your russian comrade", "герман-Codex"]
+    },
+    {
+      "person_id": "nika",
+      "name": "Ника",
+      "github_accounts": [
+        { "login": "nikssshjj1688", "url": "https://github.com/nikssshjj1688" }
+      ],
+      "role": "member",
+      "focus": null,
+      "aliases": ["ника", "niksssshj"]
+    },
+    {
+      "person_id": "ivan",
+      "name": "Иван",
+      "github_accounts": [
+        { "login": "ivanthebrave2008", "url": "https://github.com/ivanthebrave2008" }
+      ],
+      "role": "member",
+      "focus": null,
+      "aliases": ["иван", "ivan"]
+    },
+    {
+      "person_id": "ratmir",
+      "name": "Ратмир",
+      "github_accounts": [
+        { "login": "wtvfdt8yrr-commits", "url": "https://github.com/wtvfdt8yrr-commits" },
+        { "login": "zelenyjmehanik62-maker", "url": "https://github.com/zelenyjmehanik62-maker" }
+      ],
+      "role": "member",
+      "focus": null,
+      "aliases": ["ратмир", "wtvfdr"]
+    }
+  ]
+}
