@@ -140,7 +140,7 @@ test('shared API: persona, facts, weighted score, evidence, recovery and a secon
   const app = boot(browser);
   await app.idle();
   assert.equal(app.elements.get('persona-panel').hidden, false);
-  assert.equal(app.elements.get('api-badge').textContent, 'Учебный API · без модели');
+  assert.equal(app.elements.get('api-badge').textContent, 'Учебный режим · без ИИ');
   assert.equal(app.elements.get('api-demo-banner').hidden, false, 'API demo is clear before submitting a pitch');
   app.elements.get('pitch-input').value = EXAMPLE_PITCH;
   await app.state.pitch();
