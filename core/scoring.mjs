@@ -3,6 +3,7 @@
 import { CRITERIA_NAMES } from './content.mjs';
 import { capitalize, clean, limit, normalize, numbersCovered, quoteFound } from './text.mjs';
 import { badOutput, noticeFor } from './guard.mjs';
+import { weakClaim, WEAK_COMMENT } from './claims.mjs';
 
 export const round1 = (x) => Math.round(x * 10) / 10;
 
@@ -29,9 +30,18 @@ export function buildCriteria(raw, weights, source) {
       level = 0;
       comment = NOT_CONFIRMED;
     }
+    // Аналогия, рынок сверху вниз и «конкурентов нет» — заявление, а не подтверждение.
+    const weak = level > 0 ? weakClaim(evidence) : null;
+    if (weak === 'no_competitors' && id === 3) {
+      level = 0;
+      comment = WEAK_COMMENT.no_competitors;
+    } else if (weak) {
+      level = Math.min(level, 1);
+      comment = WEAK_COMMENT[weak];
+    }
     if (level === 0) {
       evidence = null;
-      if (comment !== NOT_CONFIRMED && !r.comment) comment = NO_DATA;
+      if (comment !== NOT_CONFIRMED && comment !== WEAK_COMMENT.no_competitors && !r.comment) comment = NO_DATA;
     }
     const weight = weights[i];
     return { id, name, level, weight, score: round1((weight * level) / 3), max: weight, evidence: evidence && limit(evidence, 400), comment };

@@ -1,4 +1,4 @@
-# T30: деплой Telegram-бота на сервер (docs/BOT_DEPLOY.md).
+# T30: деплой API (T28) и Telegram-бота (T27) на сервер (docs/BOT_DEPLOY.md).
 # Запуск: Actions → deploy-bot → Run workflow. mode=probe только смотрит сервер, ничего не меняя.
 name: deploy-bot
 
@@ -29,6 +29,8 @@ jobs:
       - name: Тесты бота
         working-directory: bot
         run: npm test
+      - name: Тесты API, ядра и клиента Gemini
+        run: node --test core/*.test.mjs server/*.test.mjs integrations/gemini/*.test.mjs
 
   deploy:
     needs: test
@@ -41,7 +43,11 @@ jobs:
       SERVER_PORT: ${{ vars.BOT_SERVER_PORT || '22' }}
       SSHPASS: ${{ secrets.BOT_SERVER_PASSWORD }}
       BOT_TELEGRAM_TOKEN: ${{ secrets.BOT_TELEGRAM_TOKEN }}
-      TRAINER_API_URL: ${{ vars.TRAINER_API_URL }}
+      # Пусто — бот ходит в API на этом же сервере.
+      TRAINER_API_URL: ${{ vars.TRAINER_API_URL || 'http://127.0.0.1:8080' }}
+      # Без ключа API работает в режиме demo, а бот не распознаёт голос, PDF и фото.
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-4-argon' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -91,12 +97,15 @@ jobs:
             echo "systemd: $(systemctl --version 2>/dev/null | head -1 || echo нет)"
             echo "Диск:"; df -h / | tail -1
             echo "Память:"; free -m | head -2
-            echo "Сервис бота: $(systemctl is-active investor-bot 2>/dev/null; true)"'
+            echo "Сервис бота: $(systemctl is-active investor-bot 2>/dev/null; true)"
+            echo "Сервис API: $(systemctl is-active investor-api 2>/dev/null; true)"
+            echo "Порты 8080/8081:"; ss -ltnp 2>/dev/null | grep -E ":(8080|8081)\\b" || echo "свободны"'
+          [ -n "$GEMINI_API_KEY" ] && echo "Ключ Gemini: задан" || echo "::warning::Secret GEMINI_API_KEY не задан — API в режиме demo, голос/PDF/фото в боте не распознаются"
 
       - name: Выкатить бота
         if: inputs.mode == 'deploy'
         run: |
-          tar -czf investor-bot.tgz bot deploy/bot
+          tar -czf investor-bot.tgz bot core server integrations deploy
           sshpass -e scp -q investor-bot.tgz bot:/tmp/investor-bot.tgz
           # Настройки передаются через stdin: токен не попадает в аргументы команд и в журнал.
           {
@@ -104,5 +113,12 @@ jobs:
             printf 'BOT_HEALTH_PORT=8081\n'
             printf 'TRAINER_API_URL=%s\n' "$TRAINER_API_URL"
             printf 'NODE_ENV=production\n'
+            printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY"
+            printf 'GEMINI_MODEL=%s\n' "$GEMINI_MODEL"
           } | sshpass -e ssh bot 'umask 077; cat > /tmp/investor-bot.env'
+          {
+            printf 'NODE_ENV=production\n'
+            printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY"
+            printf 'GEMINI_MODEL=%s\n' "$GEMINI_MODEL"
+          } | sshpass -e ssh bot 'umask 077; cat > /tmp/investor-api.env'
           sshpass -e ssh bot 'bash -s' < deploy/bot/remote-install.sh

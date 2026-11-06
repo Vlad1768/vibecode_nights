@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHandler } from './handler.mjs';
 import { createMemoryStore } from './store.mjs';
 import { createApp } from './index.mjs';
@@ -360,3 +361,44 @@ test('новый питч не из датасета: без цифр, спис�
     assertResultShape(done.result, [pitch, ...[1, 2, 3, 4, 5].map((s) => `Ответ ${s}: 12 интервью, 3 оплаты по 1 500 ₽.`)].join('\n'));
   }
 }));
+
+test('демо бьёт в слабые места питча: «конкурентов нет» (11), рынок сверху вниз (02)', () => withServer(async (call) => {
+  const run = async (pitch, userId, answers) => {
+    const s = (await call('POST', '/api/sessions', { userId, pitch })).body;
+    const steps = [s];
+    for (let step = 1; step <= 5; step++) steps.push((await call('POST', `/api/sessions/${s.sessionId}/answers`, { userId, step, answer: answers[step - 1] })).body);
+    return steps;
+  };
+  const s11 = await run(DATASET[10], 'web:w11', ['Студенты.', 'Опрос.', 'Реклама.', 'Чаты.', 'Да.']);
+  assert.match(s11[3].question, /конкурентов нет/i, 'вопрос 4 по заявке 11');
+  const s02 = await run(DATASET[1], 'web:w02', ['Мы как Uber для всего.', 'Планируем запустить рекламу весной.', 'Если возьмём 1% рынка, будет 6 млрд.', 'Конкурентов нет.', 'Да.']);
+  assert.match(s02[2].question, /снизу/, 'вопрос 3 по заявке 02');
+  assert.match(s02[1].reaction, /не доказательство/, 'реакция на аналогию');
+  assert.match(s02[2].reaction, /план/i, 'реакция на планы');
+  assert.match(s02[3].reaction, /сверху вниз/, 'реакция на рынок сверху вниз');
+  assert.ok(s02[5].result.criteria.every((c) => c.level <= 2), 'слабые заявления не дают 3');
+}));
+
+test('черновик содержания T29 (Хайп-Алхимик) проходит проверку и полный раунд', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'zloy-content-'));
+  try {
+    const app = createApp({ DATA_DIR: dir, DEMO_MODE: '1', CONTENT_FILE: fileURLToPath(new URL('../core/content/hype-alchemist.json', import.meta.url)) });
+    assert.equal(app.trainer.persona().id, 'hype-alchemist');
+    for (const n of [1, 5, 10]) {
+      const pitch = DATASET[n - 1];
+      const start = await app.trainer.start({ userId: `web:ha-${n}`, pitch });
+      let last = start.body;
+      const topics = [last.topic];
+      for (let step = 1; step <= 5; step++) {
+        last = (await app.trainer.answer(start.body.sessionId, { userId: `web:ha-${n}`, step, answer: 'Не знаю.' })).body;
+        if (!last.done) topics.push(last.topic);
+      }
+      assert.deepEqual(topics, ['Клиент', 'Доказательства', 'Деньги', 'Конкуренты', 'Повторный спрос']);
+      assertResultShape(last.result, [pitch, 'Не знаю.'].join('\n'));
+      assert.deepEqual(last.result.criteria.map((c) => c.weight), [15, 12, 12, 12, 6, 12, 10, 5, 8, 8]);
+    }
+    app.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -18,11 +18,22 @@ async function playRound(send, answers = 5) {
   return last;
 }
 
-test('полный раунд: карточка → факты и вопрос 1 → 5 вопросов → итог из 10 критериев и 3 советов', async () => {
-  const send = user(createDialog({ api: createMockApi() }), 1);
-  const [card] = await send('/start');
-  assert.match(card, /Олег/);
-  assert.match(card, /Вставьте описание стартапа/);
+test('полный раунд: приветствие с кнопками → практика → факты и вопрос 1 → 5 вопросов → итог', async () => {
+  const dialog = createDialog({ api: createMockApi() });
+  const send = user(dialog, 1);
+  const [welcome] = await send('/start');
+  assert.equal(welcome.photo, 'welcome');
+  assert.match(welcome.text, /^Злой инвестор — тренажёр защиты стартапа/);
+  assert.ok(welcome.text.length <= 1024, 'подпись к фото не длиннее 1024');
+  assert.deepEqual(welcome.buttons.flat().map((b) => b.data), ['learn', 'practice']);
+
+  const [learn] = await dialog.handle({ chatId: 1, userId: 'tg:1', callback: 'learn' });
+  assert.match(learn.text, /Как подготовиться к питчу/);
+  assert.deepEqual(learn.buttons.flat().map((b) => b.data), ['practice']);
+
+  const [card] = await dialog.handle({ chatId: 1, userId: 'tg:1', callback: 'practice' });
+  assert.match(card, /^Сегодня вас слушает Олег, бизнес-ангел\./);
+  assert.match(card, /текстом, голосовым или файлом/);
 
   const first = await send(PITCH);
   assert.equal(first[0], TEXTS.demo);
@@ -173,4 +184,38 @@ test('/delete удаляет данные и сбрасывает раунд', a
 test('итог совместим со старой формой советов-строк', () => {
   const text = formatResult({ criteria: [], total: 1, max: 100, advice: ['a', 'b', 'c'], previousTotal: null });
   assert.match(text, /1\. a\n2\. b\n3\. c/);
+});
+
+test('голосовое: расшифровка показывается и уходит как питч, потом как ответ', async () => {
+  const seen = [];
+  const media = { toText: async (m) => { seen.push(m.kind); return { text: m.kind === 'voice' && seen.length === 1 ? PITCH : 'Ответ голосом: 12 клиентов.', source: 'voice', shortened: false }; } };
+  const send = (input) => createdDialog.handle({ chatId: 11, userId: 'tg:11', ...input });
+  const createdDialog = createDialog({ api: createMockApi(), media });
+  const first = await send({ media: { kind: 'voice', fileId: 'v1' } });
+  assert.match(first[0], /^🎙 Расслышал так:\n«ЛабСклад/);
+  assert.match(first.at(-1), /Вопрос 1\/5/);
+  const second = await send({ media: { kind: 'voice', fileId: 'v2' } });
+  assert.match(second[0], /^🎙 Расслышал так/);
+  assert.match(second.at(-1), /Вопрос 2\/5/);
+});
+
+test('файл принимается как питч, но не как ответ; без распознавания — понятный отказ', async () => {
+  const media = { toText: async () => ({ text: PITCH, source: 'file', shortened: true }) };
+  const dialog = createDialog({ api: createMockApi(), media });
+  const send = (input) => dialog.handle({ chatId: 12, userId: 'tg:12', ...input });
+  const r = await send({ media: { kind: 'document', fileId: 'd1', fileName: 'pitch.pdf' } });
+  assert.match(r[0], /^📄 Взял текст из файла \(\d+ знаков\), длинный — сократил до сути, проверьте/);
+  assert.deepEqual(await send({ media: { kind: 'document', fileId: 'd2' } }), [TEXTS.answerNoFile]);
+
+  const plain = createDialog({ api: createMockApi() });
+  const [no] = await plain.handle({ chatId: 13, userId: 'tg:13', media: { kind: 'voice', fileId: 'v' } });
+  assert.match(no, /не подключено/);
+});
+
+test('ошибка распознавания не ломает раунд', async () => {
+  const { MediaError, MEDIA_TEXTS } = await import('../src/media.mjs');
+  const media = { toText: async () => { throw new MediaError('UNSUPPORTED', MEDIA_TEXTS.UNSUPPORTED); } };
+  const dialog = createDialog({ api: createMockApi(), media });
+  assert.deepEqual(await dialog.handle({ chatId: 14, userId: 'tg:14', media: { kind: 'document', fileId: 'x' } }), [MEDIA_TEXTS.UNSUPPORTED]);
+  assert.equal(dialog._states.get('14:tg:14').phase, 'idle');
 });

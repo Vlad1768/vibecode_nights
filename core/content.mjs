@@ -82,13 +82,17 @@ export function validateContent(raw) {
     if (!Array.isArray(slot.criteria) || !slot.criteria.every((c) => Number.isInteger(c) && c >= 1 && c <= 10)) {
       fail(`slots[${i}].criteria — номера критериев 1..10`);
     }
+    if (slot.demoQuestion !== undefined && !isText(slot.demoQuestion, 300)) fail(`slots[${i}].demoQuestion — строка до 300 символов`);
   });
   const stop = raw.stopPhrases ?? DEFAULT_CONTENT.stopPhrases;
   if (!Array.isArray(stop) || !stop.every((x) => isText(x, 200))) fail('stopPhrases — массив строк');
   return deepFreeze({
     persona: { id: p.id, name: p.name, title: p.title, intro: p.intro, howScored: p.howScored, character: p.character },
     weights: [...w],
-    slots: s.map((slot) => ({ topic: slot.topic, goal: slot.goal, criteria: [...slot.criteria] })),
+    slots: s.map((slot) => ({
+      topic: slot.topic, goal: slot.goal, criteria: [...slot.criteria],
+      ...(slot.demoQuestion ? { demoQuestion: slot.demoQuestion } : {}),
+    })),
     stopPhrases: stop.map((x) => x.toLowerCase()),
   });
 }

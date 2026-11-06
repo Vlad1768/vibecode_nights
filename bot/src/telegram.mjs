@@ -2,6 +2,9 @@
 // Токен входит только в URL запроса и никогда не попадает в тексты ошибок.
 
 export const TELEGRAM_MAX_TEXT = 4096;
+export const TELEGRAM_MAX_CAPTION = 1024;
+// Bot API отдаёт ботам файлы до 20 МБ.
+export const TELEGRAM_MAX_DOWNLOAD = 20 * 1024 * 1024;
 
 export class TelegramError extends Error {
   constructor(method, code, description, retryAfter) {
@@ -28,8 +31,22 @@ export function splitText(text, limit = TELEGRAM_MAX_TEXT) {
   return parts;
 }
 
+// buttons: [[{ text, data }]] → inline_keyboard под сообщением.
+export function inlineKeyboard(buttons) {
+  if (!buttons?.length) return undefined;
+  return { inline_keyboard: buttons.map((row) => row.map((b) => ({ text: b.text, callback_data: b.data }))) };
+}
+
 export function createTelegram({ token, fetchImpl = globalThis.fetch, baseUrl = 'https://api.telegram.org' }) {
   if (!token) throw new Error('BOT_TELEGRAM_TOKEN не задан');
+
+  async function parse(method, res) {
+    const data = await res.json().catch(() => null);
+    if (!data?.ok) {
+      throw new TelegramError(method, data?.error_code ?? res.status, data?.description ?? 'bad response', data?.parameters?.retry_after);
+    }
+    return data.result;
+  }
 
   async function call(method, params, { timeoutMs = 15_000, signal } = {}) {
     const timeout = AbortSignal.timeout(timeoutMs);
@@ -44,33 +61,70 @@ export function createTelegram({ token, fetchImpl = globalThis.fetch, baseUrl = 
     } catch (err) {
       throw new TelegramError(method, 'NETWORK', err?.name ?? 'fetch failed');
     }
-    const data = await res.json().catch(() => null);
-    if (!data?.ok) {
-      throw new TelegramError(
-        method,
-        data?.error_code ?? res.status,
-        data?.description ?? 'bad response',
-        data?.parameters?.retry_after,
-      );
+    return parse(method, res);
+  }
+
+  // multipart — только для загрузки фото с диска.
+  async function upload(method, fields, fileField, file) {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) if (v !== undefined) form.set(k, typeof v === 'string' ? v : JSON.stringify(v));
+    form.set(fileField, new Blob([file.buffer], { type: file.mimeType ?? 'application/octet-stream' }), file.filename ?? 'file');
+    let res;
+    try {
+      res = await fetchImpl(`${baseUrl}/bot${token}/${method}`, { method: 'POST', body: form, signal: AbortSignal.timeout(60_000) });
+    } catch (err) {
+      throw new TelegramError(method, 'NETWORK', err?.name ?? 'fetch failed');
     }
-    return data.result;
+    return parse(method, res);
   }
 
   return {
     getUpdates: (offset, timeoutSec, signal) =>
       call(
         'getUpdates',
-        { offset, timeout: timeoutSec, allowed_updates: ['message'] },
+        { offset, timeout: timeoutSec, allowed_updates: ['message', 'callback_query'] },
         { timeoutMs: (timeoutSec + 10) * 1000, signal },
       ),
-    async sendMessage(chatId, text) {
-      for (const part of splitText(text)) {
-        await call('sendMessage', { chat_id: chatId, text: part, link_preview_options: { is_disabled: true } });
+    async sendMessage(chatId, text, { buttons } = {}) {
+      const parts = splitText(text);
+      for (let i = 0; i < parts.length; i++) {
+        const last = i === parts.length - 1;
+        await call('sendMessage', {
+          chat_id: chatId,
+          text: parts[i],
+          link_preview_options: { is_disabled: true },
+          reply_markup: last ? inlineKeyboard(buttons) : undefined,
+        });
       }
     },
+    // photo: file_id или URL (строка) либо { buffer, filename, mimeType }. Возвращает file_id для повторного использования.
+    async sendPhoto(chatId, photo, { caption, buttons } = {}) {
+      const fields = { chat_id: String(chatId), caption, reply_markup: inlineKeyboard(buttons) };
+      const result = typeof photo === 'string'
+        ? await call('sendPhoto', { ...fields, chat_id: chatId, photo })
+        : await upload('sendPhoto', fields, 'photo', photo);
+      return result?.photo?.at(-1)?.file_id ?? null;
+    },
+    answerCallback: (id, text) => call('answerCallbackQuery', { callback_query_id: id, text }).catch(() => {}),
     // Меню команд в клиенте Telegram: [[команда, описание], ...]
     setCommands: (commands) =>
       call('setMyCommands', { commands: commands.map(([command, description]) => ({ command, description })) }),
     sendTyping: (chatId) => call('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {}),
+    // Скачивание файла пользователя (голосовое, документ, фото).
+    async downloadFile(fileId, maxBytes = TELEGRAM_MAX_DOWNLOAD) {
+      const info = await call('getFile', { file_id: fileId });
+      if (!info?.file_path) throw new TelegramError('getFile', 'NO_PATH', 'file is not available');
+      if (info.file_size && info.file_size > maxBytes) throw new TelegramError('getFile', 'TOO_BIG', 'file is too big');
+      let res;
+      try {
+        res = await fetchImpl(`${baseUrl}/file/bot${token}/${info.file_path}`, { signal: AbortSignal.timeout(60_000) });
+      } catch (err) {
+        throw new TelegramError('downloadFile', 'NETWORK', err?.name ?? 'fetch failed');
+      }
+      if (!res.ok) throw new TelegramError('downloadFile', res.status, 'download failed');
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length > maxBytes) throw new TelegramError('downloadFile', 'TOO_BIG', 'file is too big');
+      return { buffer, filePath: info.file_path };
+    },
   };
 }

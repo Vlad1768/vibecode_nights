@@ -6,6 +6,8 @@ if (typeof window !== 'undefined') {
 
 export const DEFAULT_MODEL = 'gemini-4-argon';
 const API_ROOT = 'https://generativelanguage.googleapis.com/v1beta/models/';
+// Встроенные данные в запросе Gemini — до ~20 МБ; оставляем запас под текст.
+const MAX_MEDIA_BASE64 = 18 * 1024 * 1024;
 const MESSAGES = Object.freeze({
   CONFIG: 'Проверьте серверные настройки Gemini.',
   INPUT: 'Некорректный или слишком длинный запрос.',
@@ -72,7 +74,13 @@ export function createGeminiClient({
     if (!requestInput || typeof requestInput !== 'object' || Array.isArray(requestInput)) {
       throw new GeminiError('INPUT');
     }
-    const { prompt, system = '', signal, schema } = requestInput;
+    const { prompt, system = '', signal, schema, media = [] } = requestInput;
+    // media (необязательно): [{ mimeType, data }] — base64 аудио, PDF или картинка рядом с текстом запроса.
+    if (!Array.isArray(media) || media.length > 4 || media.some((m) => !m || typeof m.mimeType !== 'string'
+      || !/^[a-z]+\/[a-z0-9.+-]+$/i.test(m.mimeType) || typeof m.data !== 'string' || !m.data)
+      || media.reduce((sum, m) => sum + m.data.length, 0) > MAX_MEDIA_BASE64) {
+      throw new GeminiError('INPUT');
+    }
     if (typeof prompt !== 'string' || !prompt.trim() || typeof system !== 'string'
       || prompt.length + system.length > maxInputChars
       || (signal !== undefined && !(signal instanceof AbortSignal))
@@ -86,7 +94,8 @@ export function createGeminiClient({
       generationConfig.responseMimeType = 'application/json';
       generationConfig.responseJsonSchema = schema;
     }
-    const request = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig };
+    const parts = [...media.map((m) => ({ inlineData: { mimeType: m.mimeType, data: m.data } })), { text: prompt }];
+    const request = { contents: [{ role: 'user', parts }], generationConfig };
     if (system) request.systemInstruction = { parts: [{ text: system }] };
     let body;
     try { body = JSON.stringify(request); }

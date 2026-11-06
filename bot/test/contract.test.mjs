@@ -24,7 +24,7 @@ async function withBot(fn) {
 }
 
 test('бот проходит полный раунд и второй раунд на моке контракта', () => withBot(async (send) => {
-  assert.match((await send(1, '/start'))[0], /Олег, бизнес-ангел/);
+  assert.match((await send(1, '/new'))[0], /Олег, бизнес-ангел/);
   const first = await send(1, PITCH);
   assert.match(first.join('\n'), /Что я понял из питча:/);
   assert.match(first.at(-1), /Вопрос 1\/5 · /);
