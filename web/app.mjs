@@ -224,7 +224,7 @@ function mapResult(value) {
     maxScore: value.max,
     previousTotal: value.previousTotal,
     criteria: value.criteria.map((item) => ({ ...item, maxScore: item.max })),
-    tips: value.advice.map((tip, index) => ({ title: `Приоритет ${index + 1}`, text: tip.text, basedOn: tip.basedOn })),
+    tips: value.advice.map((tip, index) => ({ title: `Шаг ${index + 1} до защиты`, text: tip.text, basedOn: tip.basedOn })),
   };
   if (!isResult(result, true)) throw invalidResponse();
   return result;
@@ -316,7 +316,7 @@ function renderApiStatus() {
     dom.apiBadge.textContent = 'Учебный режим · без ИИ';
   } else if (apiMode === 'live') {
     dom.apiBadge.classList.add('status-badge--ready');
-    dom.apiBadge.textContent = 'Gemini Argon · режим ИИ';
+    dom.apiBadge.textContent = 'Режим ИИ';
   } else {
     dom.apiBadge.classList.add('status-badge--offline');
     dom.apiBadge.textContent = apiMode === 'unknown' ? 'Проверяем связь…' : 'Нет связи · доступно демо';
@@ -362,7 +362,7 @@ async function apiRequest(url, { payload, signal } = {}) {
     if (signal?.aborted) throw error;
     if (timedOut) throw Object.assign(new Error('Сервер не успел ответить. Текст сохранён — повторите запрос.'), { code: 'TIMEOUT' });
     if (error.code) throw error;
-    throw Object.assign(new Error('Не удалось связаться с общим сервером. Текст сохранён — повторите запрос.'), { code: 'NETWORK' });
+    throw Object.assign(new Error('Не удалось связаться с тренажёром. Текст сохранён — повторите запрос.'), { code: 'NETWORK' });
   } finally {
     window.clearTimeout(timeout);
     signal?.removeEventListener('abort', abort);
@@ -421,7 +421,7 @@ function updateStageButtonsText() {
   if (isLastStep) {
     dom.submitAnswerBtn.textContent = state.mode === 'demo'
       ? 'Завершить демо и открыть разбор'
-      : 'Отправить 5-й ответ и получить вердикт';
+      : 'Получить разбор и три совета';
   } else {
     dom.submitAnswerBtn.textContent = `Ответить (вопрос ${state.step} из ${state.totalSteps})`;
   }
@@ -603,7 +603,7 @@ function renderResultStage() {
     : state.backendDemo ? 'Учебный разбор вашего питча' : 'Разбор вашего питча';
   dom.scoringDescription.textContent = state.mode === 'demo'
     ? 'Учебный образец StudySpot: условная шкала 0–10 с равными весами. Этот пример не оценивает ваши ответы.'
-    : 'Уровень 0 — данных нет, 1 — заявлено, 2 — есть цифры, 3 — есть подтверждение. Общий сервер считает баллы: вес × уровень / 3. Сумма весов — 100.';
+    : 'Уровень 0 — данных нет, 1 — заявлено, 2 — есть цифры, 3 — есть подтверждение. Балл = вес критерия × уровень / 3. Максимум за весь питч — 100.';
   dom.secondRoundBtn.hidden = state.mode === 'demo';
   const previous = res.previousTotal;
   dom.roundComparison.hidden = !Number.isFinite(previous);
@@ -765,10 +765,10 @@ async function handlePitchSubmit(event) {
     return;
   }
 
-  // Боевой режим: POST /api/session
+  // Основной режим: POST /api/sessions
   const request = new AbortController();
   activeRequest = request;
-  setSubmittingState(true, 'Генерируем 1-й вопрос…');
+  setSubmittingState(true, 'Инвестор изучает питч…');
   try {
     const data = await apiPost('/api/sessions', { pitch: pitchText, previousSessionId: state.previousSessionId }, request.signal);
     if (activeRequest !== request) return;
@@ -835,7 +835,7 @@ async function handleAnswerSubmit(event) {
     return;
   }
 
-  // Боевой режим: POST /api/session/:id/answer
+  // Основной режим: POST /api/sessions/:id/answers
   const request = new AbortController();
   activeRequest = request;
   setSubmittingState(true, currentStep >= state.totalSteps ? 'Формируем оценку по 10 критериям…' : 'Инвестор готовит следующий вопрос…');
@@ -909,10 +909,10 @@ function handleApiError(err, retryFn) {
   if (err.code === 'QUOTA') {
     quotaKnown = true;
     renderApiStatus();
-    // При лимите Gemini показываем ошибку и кнопку повтора, НЕ подменяем деморежимом
+    // При лимите модели показываем ошибку и кнопку повтора.
     showError(
-      'Сейчас у Gemini нет доступной квоты',
-      err.message || 'Исчерпана квота обращения к модели Gemini Argon. Ваш текст сохранён. Подождите немного и нажмите «Повторить отправку».',
+      'Лимит ИИ временно исчерпан',
+      err.message || 'У модели нет доступной квоты. Ваш текст сохранён. Повторите запрос позже или откройте демопример.',
       retryFn
     );
     return;
@@ -957,7 +957,7 @@ async function recoverSession() {
       dom.answerInput.value = pendingAnswer;
       updateCounters();
     }
-    announce(mapped.result ? 'Результат восстановлен с общего сервера.' : `Раунд восстановлен. Вопрос ${data.step} из 5.`);
+    announce(mapped.result ? 'Разбор восстановлен.' : `Раунд восстановлен. Вопрос ${data.step} из 5.`);
   } catch (error) {
     if (activeRequest === request) {
       // Recovery errors must not recursively start another recovery.
