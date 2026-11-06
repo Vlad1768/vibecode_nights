@@ -1,4 +1,4 @@
-/* Original JPGs stay untouched. Soft masks blend only their dark outer edges. */
+/* Preserve the supplied figures; crop only the unused sides of each square JPG. */
 .hero.has-investor-art { position: relative; isolation: isolate; }
 .investor-art-stage {
   position: relative;
@@ -6,7 +6,7 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   width: calc(100% - 24px);
   max-width: 820px;
-  height: 150px;
+  height: 176px;
   margin: 20px auto -14px;
   pointer-events: none;
   user-select: none;
@@ -26,34 +26,29 @@
   height: 100%;
   overflow: hidden;
   mix-blend-mode: screen;
-  mask-image: linear-gradient(to bottom, transparent, #000 8%, #000 92%, transparent);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 8%, #000 92%, transparent);
 }
 .investor-art__figure img {
   position: absolute;
-  width: 165px;
-  height: 165px;
-  max-width: none;
-  left: 50%;
-  bottom: 0;
-  object-fit: contain;
-  transform: translateX(-50%);
+  width: 100%;
+  height: calc(100% - 12px);
+  max-width: 100%;
+  left: 0;
+  top: 6px;
+  object-fit: cover;
+  object-position: center;
   animation: investor-art-float 7s ease-in-out infinite;
-  mask-image: radial-gradient(ellipse 47% 55% at 50% 52%, #000 65%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 47% 55% at 50% 52%, #000 65%, transparent 100%);
 }
 .investor-art__figure--2 img { animation-delay: -2.3s; }
 .investor-art__figure--3 img { animation-delay: -4.6s; }
 @keyframes investor-art-float {
   0%, 100% { translate: 0 2px; }
-  50% { translate: 0 -4px; }
+  50% { translate: 0 -2px; }
 }
 .motion-paused .investor-art__figure img,
 .investor-art--idle .investor-art__figure img { animation-play-state: paused; }
 .motion-reduced .investor-art__figure img { animation: none; }
 @media (min-width: 580px) {
-  .investor-art-stage { height: 190px; margin-top: 24px; }
-  .investor-art__figure img { width: 210px; height: 210px; }
+  .investor-art-stage { height: 210px; margin-top: 24px; }
 }
 @media (min-width: 1200px) {
   /* Dedicated gutters protect all text, links and the conversation preview. */
@@ -80,13 +75,11 @@
     width: 140px;
     height: 245px;
   }
-  .investor-art__figure img { width: 265px; height: 265px; }
   .investor-art__figure--1 {
     left: max(0px, calc((100% - 1560px) / 2));
-    top: calc(50% - 165px);
-    height: 330px;
+    top: calc(50% - 140px);
+    height: 280px;
   }
-  .investor-art__figure--1 img { width: 345px; height: 345px; }
   .investor-art__figure--2 {
     right: max(0px, calc((100% - 1560px) / 2));
     top: 10px;
