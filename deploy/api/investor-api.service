@@ -1,0 +1,29 @@
+[Unit]
+Description=API тренажёра «Злой инвестор» (T28/T30)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=investorapi
+Group=investorapi
+WorkingDirectory=/opt/investor-bot
+# GEMINI_API_KEY и настройки: /etc/investor-api/api.env (0640 root:investorapi), в Git не хранится.
+EnvironmentFile=/etc/investor-api/api.env
+Environment=HOST=127.0.0.1
+Environment=PORT=8080
+Environment=DATA_DIR=/var/lib/investor-api
+StateDirectory=investor-api
+StateDirectoryMode=0750
+ExecStart=/usr/bin/env node server/index.mjs
+Restart=always
+RestartSec=5
+# Журнал — в journald: journalctl -u investor-api
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+
+[Install]
+WantedBy=multi-user.target

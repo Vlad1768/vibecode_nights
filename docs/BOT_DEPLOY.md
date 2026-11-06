@@ -1,6 +1,6 @@
-# Деплой Telegram-бота (T30)
+# Деплой API и Telegram-бота (T30)
 
-Бот (`bot/`, T27) выкатывается на сервер из `docs/BOT_SERVER.md` workflow **deploy-bot** в GitHub Actions. С ноутбука ничего запускать не нужно, бот работает на сервере и при выключенном ноутбуке.
+API (`server/` + `core/`, T28) и бот (`bot/`, T27) выкатываются на сервер из `docs/BOT_SERVER.md` workflow **deploy-bot** в GitHub Actions. С ноутбука ничего запускать не нужно, бот работает на сервере и при выключенном ноутбуке.
 
 ## Настройки в GitHub
 
@@ -13,7 +13,9 @@
 | `BOT_SERVER_PASSWORD` | Secret | SSH-пароль (задан Германом) |
 | `BOT_TELEGRAM_TOKEN` | Secret | Токен бота от @BotFather |
 | `BOT_SERVER_PORT` | Variable, необязательно | SSH-порт, по умолчанию 22 |
-| `TRAINER_API_URL` | Variable, необязательно | Адрес общего API T28. Пока не задан, бот работает в демо-режиме на заглушке |
+| `GEMINI_API_KEY` | Secret | Ключ Gemini. С ним API работает с моделью (`live`), а бот распознаёт голосовые, PDF и фото. Без него — API в `demo`, бот принимает только текст, DOCX, PPTX, TXT |
+| `GEMINI_MODEL` | Variable, необязательно | По умолчанию `gemini-4-argon` (docs/GEMINI.md) |
+| `TRAINER_API_URL` | Variable, необязательно | Адрес API для бота. По умолчанию `http://127.0.0.1:8080` — API на этом же сервере |
 
 ## Деплой и повторный деплой
 
@@ -27,6 +29,15 @@ Actions → **deploy-bot** → Run workflow:
 ## Сервер (осмотр 06.11.2026, workflow probe)
 
 Ubuntu 24.04.4 LTS, x86_64, systemd 255, 4 ГБ RAM, 50 ГБ свободно на `/`. SSH-порт 22, вход по паролю из секрета работает. Node.js не был установлен, его ставит первый деплой.
+
+## Службы на сервере
+
+| Служба | Что | Адрес (только локально) | Журнал |
+|---|---|---|---|
+| `investor-api` | API T28, пользователь `investorapi`, данные в `/var/lib/investor-api` (сессии 14 дней) | `http://127.0.0.1:8080/api/health` | `journalctl -u investor-api` |
+| `investor-bot` | Бот T27, пользователь `investorbot`, ходит в API | `http://127.0.0.1:8081/health` | `journalctl -u investor-bot` |
+
+Сайту (T32) API отдаёт Caddy по пути `/api` → `127.0.0.1:8080` (настраивает Влад).
 
 ## Что происходит на сервере
 
