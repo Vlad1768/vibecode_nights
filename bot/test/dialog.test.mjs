@@ -240,3 +240,33 @@ test('кнопки гаснут после нажатия, «Профиль» и
   assert.equal(buttonsAfterPress(markup, 'criteria'), undefined);
   assert.equal(formatPitchEval(normalizePitch({ scores: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }, { text: 'x' })).split('\n')[0], '📊 Оценка питча: 0/100 — «Сырой»');
 });
+
+test('персонаж выбирается случайно для каждой сессии, без повтора подряд, и доходит до тренера', async () => {
+  const { loadPersonas } = await import('../src/personas.mjs');
+  const personas = loadPersonas();
+  assert.equal(personas.length, 5);
+  const coach = fakeCoach();
+  const seen = [];
+  const orig = coach.evaluatePitch;
+  coach.evaluatePitch = (text, prev, persona) => { seen.push(persona?.id); return orig(text, prev, persona); };
+  const dialog = createDialog({ api: createMockApi(), coach, personas, random: () => 0.99 });
+  const say = (text) => dialog.handle({ chatId: 20, userId: 'tg:20', text });
+  const w = await say('/start');
+  assert.equal(w[1].photo, 'persona');
+  assert.match(w[1].text, /^🎲 Сегодня тебя слушает: /);
+  assert.ok(w[1].imagePath.endsWith('.jpg'));
+  const first = dialog._states.get('20:tg:20').session.persona.id;
+  await say(PITCH);
+  assert.equal(seen[0], first);
+  const n = await say('/new');
+  assert.match(n[0].text, /^🎲 Сегодня тебя слушает: /);
+  assert.notEqual(dialog._states.get('20:tg:20').session.persona.id, first, 'подряд — другой персонаж');
+});
+
+test('питч без /start: карточка персонажа приходит перед оценкой', async () => {
+  const { loadPersonas } = await import('../src/personas.mjs');
+  const dialog = createDialog({ api: createMockApi(), coach: fakeCoach(), personas: loadPersonas() });
+  const r = await dialog.handle({ chatId: 21, userId: 'tg:21', text: PITCH });
+  assert.equal(r[0].photo, 'persona');
+  assert.match(r[1].text, /^📊 Оценка питча/);
+});

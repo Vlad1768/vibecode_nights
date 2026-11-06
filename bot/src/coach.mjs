@@ -254,6 +254,7 @@ export function normalizeAnswer(raw, { text }) {
 }
 
 // ---------- Тренер ----------
+import { personaPrompt } from './personas.mjs';
 
 export function createCoach({ llm }) {
   if (!llm || typeof llm.generateJSON !== 'function') throw new Error('Тренеру нужен клиент модели (OPENAI_API_KEY)');
@@ -261,17 +262,17 @@ export function createCoach({ llm }) {
 
   return {
     // previous: { text, evaluation } — для повторной оценки с разбором изменений.
-    async evaluatePitch(text, previous = null) {
+    async evaluatePitch(text, previous = null, persona = null) {
       const diff = previous
         ? `\nЭто исправленная версия. Сравни с предыдущей и заполни fixed (что улучшилось, с критерием), unchanged (какие слабые места остались), new_problems (что ухудшилось), advice — следующий шаг.\nБаллы предыдущей версии по критериям: ${PITCH_CRITERIA.map((c, i) => `${c.id}=${previous.evaluation.scores[i]}`).join(', ')}.\n${tag('предыдущая_версия', previous.text)}`
         : '';
-      const raw = await ask(`${ROLE}\n\n${PITCH_METHOD}`, `Оцени питч по методике.${diff}\n${tag('питч', text)}`, PITCH_SCHEMA);
+      const raw = await ask(`${ROLE}${personaPrompt(persona)}\n\n${PITCH_METHOD}`, `Оцени питч по методике.${diff}\n${tag('питч', text)}`, PITCH_SCHEMA);
       return normalizePitch(raw, { text, previous });
     },
 
-    async evaluateAnswer({ pitch, question, answer }) {
+    async evaluateAnswer({ pitch, question, answer, persona = null }) {
       const raw = await ask(
-        `${ROLE}\n\n${ANSWER_METHOD}`,
+        `${ROLE}${personaPrompt(persona)}\n\n${ANSWER_METHOD}`,
         `Оцени ответ на вопрос защиты.\n${tag('питч', pitch)}\n${tag('вопрос', question)}\n${tag('ответ', answer)}`,
         ANSWER_SCHEMA,
       );
@@ -279,9 +280,9 @@ export function createCoach({ llm }) {
     },
 
     // «Уточнить вопрос»: проще и с примером, но без подсказки ответа.
-    async clarify({ pitch, question, request }) {
+    async clarify({ pitch, question, request, persona = null }) {
       const raw = await ask(
-        `${ROLE}\nОбъясни вопрос защиты проще, 2–4 предложения, с коротким примером того, что именно хотят услышать (пример — про другой, условный проект). Не подсказывай ответ для этого проекта и не давай готовых цифр. Если просьба пользователя не про вопрос — просто объясни вопрос.`,
+        `${ROLE}${personaPrompt(persona)}\nОбъясни вопрос защиты проще, 2–4 предложения, с коротким примером того, что именно хотят услышать (пример — про другой, условный проект). Не подсказывай ответ для этого проекта и не давай готовых цифр. Если просьба пользователя не про вопрос — просто объясни вопрос.`,
         `${tag('питч', pitch)}\n${tag('вопрос', question)}\n${tag('что_непонятно', request)}`,
         TEXT_SCHEMA,
       );
@@ -289,9 +290,9 @@ export function createCoach({ llm }) {
     },
 
     // «Изменить вопрос»: другой вопрос той же темы, адаптированный под питч.
-    async alternativeQuestion({ pitch, question, topic, asked }) {
+    async alternativeQuestion({ pitch, question, topic, asked, persona = null }) {
       const raw = await ask(
-        `${ROLE}\nПредложи другой вопрос защиты на ту же тему, что и текущий, но с другой стороны. Один вопрос, до 220 символов, упоминай продукт пользователя, без оценок внутри вопроса. Не повторяй уже заданные вопросы.`,
+        `${ROLE}${personaPrompt(persona)}\nПредложи другой вопрос защиты на ту же тему, что и текущий, но с другой стороны. Один вопрос, до 220 символов, упоминай продукт пользователя, без оценок внутри вопроса. Не повторяй уже заданные вопросы.`,
         `Тема: ${topic || 'та же'}\n${tag('питч', pitch)}\n${tag('текущий_вопрос', question)}\n${tag('уже_заданные', (asked ?? []).join('\n'))}`,
         QUESTION_SCHEMA,
       );

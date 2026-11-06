@@ -13,6 +13,7 @@ import { createMediaReader } from './media.mjs';
 import { inputFromMessage } from './input.mjs';
 import { createStore } from './store.mjs';
 import { createCoach } from './coach.mjs';
+import { loadPersonas } from './personas.mjs';
 import { buttonsAfterPress } from './buttons.mjs';
 import { createLlmClientFromEnv, llmProvider } from '../../integrations/llm.mjs';
 
@@ -66,7 +67,7 @@ async function main() {
   // Распознавание голоса, PDF и фото — той же моделью, что у API: OPENAI_API_KEY (ChatGPT) или GEMINI_API_KEY.
   let llm = null;
   try {
-    llm = createLlmClientFromEnv(process.env, { timeoutMs: 60_000, maxOutputTokens: 4096 });
+    llm = createLlmClientFromEnv(process.env, { timeoutMs: 30_000, maxOutputTokens: 4096 });
   } catch (err) {
     log('warn', 'llm.config_invalid', { error: err?.code ?? err?.message });
   }
@@ -76,7 +77,9 @@ async function main() {
   const store = createStore({ dir: process.env.BOT_DATA_DIR || null });
   // Тренер (оценка питча и ответов по ТЗ) работает на той же модели — без ключа бот честно скажет, что недоступен.
   const coach = llm ? createCoach({ llm }) : null;
-  const dialog = createDialog({ api, coach, media, store });
+  // Персонажи Ники: для каждой новой сессии — случайный (content/investor/investors.json).
+  const personas = loadPersonas();
+  const dialog = createDialog({ api, coach, media, store, personas });
 
   const welcomeSource = welcomePhotoSource(process.env);
   const photoIds = new Map(); // путь к файлу → file_id Telegram после первой загрузки
@@ -88,7 +91,10 @@ async function main() {
       return;
     }
     if (reply.action === 'markDone') return; // кнопку уже поменяли в buttonsAfterPress
-    const source = reply.photo === 'welcome' ? welcomeSource : reply.photo === 'persona' ? personaPhotoSource(reply.personaId) : null;
+    const source = reply.photo === 'welcome' ? welcomeSource
+      : reply.photo === 'persona' && reply.imagePath && existsSync(reply.imagePath)
+        ? { path: reply.imagePath, filename: reply.imagePath.split('/').pop(), mimeType: 'image/jpeg' }
+        : reply.photo === 'persona' ? personaPhotoSource(reply.personaId) : null;
     if (source) {
       try {
         const key = typeof source === 'string' ? source : source.path;
@@ -154,7 +160,7 @@ async function main() {
     }
   }
 
-  log('info', 'bot.started', { api: api.mode, recognition: llm ? llmProvider(process.env) : false, welcomePhoto: !!welcomeSource });
+  log('info', 'bot.started', { personas: personas.length, api: api.mode, recognition: llm ? llmProvider(process.env) : false, welcomePhoto: !!welcomeSource });
   tg.setCommands(COMMANDS).catch((err) => log('warn', 'telegram.set_commands_failed', { error: err?.message }));
   let offset = 0;
   let backoffMs = 1_000;

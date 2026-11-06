@@ -9,6 +9,7 @@ import { MediaError, MEDIA_TEXTS } from './media.mjs';
 import { createStore } from './store.mjs';
 import { PITCH_CRITERIA, ANSWER_CRITERIA, isInjection, isAbuseOnly, isTooShortForPitch } from './coach.mjs';
 import { achievementsFor, ACHIEVEMENTS, buildProfile, formatProfile, levelFor, DEFENDED_THRESHOLD } from './profile.mjs';
+import { pickPersona, personaCard, personaLabel } from './personas.mjs';
 
 export const MAX_INPUT_CHARS = 4000;
 export const MAX_EDITS = 3;
@@ -151,10 +152,10 @@ function sessionCriteria(pitchScores, answers) {
   return rows.sort((a, b) => b.pct - a.pct);
 }
 
-export function formatFinal({ pitchTotal, answersTotal, total, rows, newAchievements, levelUp }) {
+export function formatFinal({ pitchTotal, answersTotal, total, rows, newAchievements, levelUp, persona = null }) {
   const defended = total >= DEFENDED_THRESHOLD;
   const lines = [
-    '🏁 Итог сессии',
+    persona ? `🏁 Итог сессии · слушал(а) ${personaLabel(persona)}` : '🏁 Итог сессии',
     `Питч: ${pitchTotal}/100 · Ответы: ${answersTotal}/100 · Общий балл: ${total}/100`,
     `Вердикт: ${defended ? '«🛡 Стартап защищён»' : '«Пока не защищён»'}`,
     '',
@@ -190,7 +191,8 @@ function apiErrorText(err) {
 
 // ---------- Диалог ----------
 
-export function createDialog({ api, coach = null, media = null, store = createStore(), now = () => Date.now() }) {
+// personas — список персонажей (personas.mjs); для каждой новой сессии выбирается случайный.
+export function createDialog({ api, coach = null, media = null, store = createStore(), now = () => Date.now(), personas = [], random = Math.random }) {
   const states = new Map();
 
   function stateOf(chatId, userId) {
@@ -204,12 +206,23 @@ export function createDialog({ api, coach = null, media = null, store = createSt
   }
 
   function newSession(s) {
+    const persona = pickPersona(personas, s.session?.persona?.id ?? s.lastPersonaId ?? null, random);
+    if (persona) s.lastPersonaId = persona.id;
     s.session = {
+      persona, personaShown: false,
       at: now(), versions: [], evals: [], edits: 0, replacements: 0, clarifications: 0,
       apiSessionId: null, step: 0, question: null, topic: null, replaced: false, asked: [], answers: [], apiNext: null, apiDone: null,
     };
     s.phase = 'idle';
     s.pending = null;
+  }
+
+  // Карточка персонажа (один раз за сессию): фото + кто он, чего хочет, чего боится.
+  function cardOnce(s, extra = '') {
+    const sess = s.session;
+    if (!sess.persona || sess.personaShown) return [];
+    sess.personaShown = true;
+    return [{ photo: 'persona', imagePath: sess.persona.imagePath, text: `${personaCard(sess.persona)}${extra}` }];
   }
 
   const pitchButtons = (sess) => (sess.edits < MAX_EDITS ? [[BUTTONS.go], [BUTTONS.fix]] : [[BUTTONS.go]]);
@@ -230,7 +243,7 @@ export function createDialog({ api, coach = null, media = null, store = createSt
     const previous = sess.evals.length ? { text: sess.versions.at(-1), evaluation: sess.evals.at(-1) } : null;
     let e;
     try {
-      e = await coach.evaluatePitch(text, previous);
+      e = await coach.evaluatePitch(text, previous, sess.persona);
     } catch {
       s.pending = { kind: 'pitch', text };
       return [{ text: TEXTS.coachFailed, buttons: [[BUTTONS.retry]] }];
@@ -306,7 +319,7 @@ export function createDialog({ api, coach = null, media = null, store = createSt
     if (isInjection(answer)) return [TEXTS.offtopic];
     let e;
     try {
-      e = await coach.evaluateAnswer({ pitch: sess.versions.at(-1), question: sess.question, answer });
+      e = await coach.evaluateAnswer({ pitch: sess.versions.at(-1), question: sess.question, answer, persona: sess.persona });
     } catch {
       s.pending = { kind: 'answer', text: answer };
       return [{ text: TEXTS.coachFailed, buttons: [[BUTTONS.retry]] }];
@@ -339,7 +352,7 @@ export function createDialog({ api, coach = null, media = null, store = createSt
     if (sess.replacements >= MAX_REPLACEMENTS) return [TEXTS.replaceOver];
     let q = null;
     try {
-      q = await coach.alternativeQuestion({ pitch: sess.versions.at(-1), question: sess.question, topic: sess.topic, asked: sess.asked });
+      q = await coach.alternativeQuestion({ pitch: sess.versions.at(-1), question: sess.question, topic: sess.topic, asked: sess.asked, persona: sess.persona });
     } catch {
       q = null;
     }
@@ -355,7 +368,7 @@ export function createDialog({ api, coach = null, media = null, store = createSt
     const sess = s.session;
     let text = null;
     try {
-      text = await coach.clarify({ pitch: sess.versions.at(-1), question: sess.question, request });
+      text = await coach.clarify({ pitch: sess.versions.at(-1), question: sess.question, request, persona: sess.persona });
     } catch {
       text = null;
     }
@@ -390,6 +403,7 @@ export function createDialog({ api, coach = null, media = null, store = createSt
       clarifications: sess.clarifications,
       issues: [...new Set([...lastEval.issues, ...sess.answers.flatMap((a) => a.issues)])],
       caseTotal: sess.apiDone?.result?.total ?? null,
+      persona: sess.persona?.id ?? null,
       texts: { pitches: sess.versions, answers: sess.answers.map((a) => ({ question: a.question, answer: a.answer })) },
     };
     store.addSession(s.userId, s.name, record);
@@ -401,7 +415,7 @@ export function createDialog({ api, coach = null, media = null, store = createSt
     const rows = sessionCriteria(lastEval.scores, sess.answers);
     s.phase = 'final';
     return [{
-      text: formatFinal({ pitchTotal, answersTotal, total, rows, newAchievements, levelUp: lvlAfter.index > lvlBefore.index ? lvlAfter.name : null }),
+      text: formatFinal({ pitchTotal, answersTotal, total, rows, newAchievements, levelUp: lvlAfter.index > lvlBefore.index ? lvlAfter.name : null, persona: sess.persona }),
       buttons: finalButtons(s),
     }];
   }
@@ -431,11 +445,13 @@ export function createDialog({ api, coach = null, media = null, store = createSt
     switch (name) {
       case 'start':
         newSession(s);
-        return [{ photo: 'welcome', text: TEXTS.welcome, buttons: [[BUTTONS.learn, BUTTONS.profile]] }];
+        return [{ photo: 'welcome', text: TEXTS.welcome, buttons: [[BUTTONS.learn, BUTTONS.profile]] }, ...cardOnce(s)];
       case 'new':
-      case 'practice':
+      case 'practice': {
         newSession(s);
-        return [{ text: 'Новая сессия. Пришли питч своего проекта: проблема, решение, рынок, деньги, команда — на 1–2 минуты чтения.', buttons: [[BUTTONS.learn]] }];
+        const card = cardOnce(s);
+        return [...card, { text: 'Новая сессия. Пришли питч своего проекта: проблема, решение, рынок, деньги, команда — на 1–2 минуты чтения.', buttons: [[BUTTONS.learn]] }];
+      }
       case 'help':
       case 'how':
         return [TEXTS.help];
@@ -533,11 +549,15 @@ export function createDialog({ api, coach = null, media = null, store = createSt
         // Новый текст на этапе оценки — это исправленная версия (если правки остались).
         if (s.session.edits >= MAX_EDITS) return [TEXTS.editsOver, ...(await startQuestions(s))];
         return [...out, ...(await evaluatePitch(s, trimmed))];
-      case 'final':
+      case 'final': {
         newSession(s);
-        return [...out, ...(await evaluatePitch(s, trimmed))];
-      default: // idle, fixing
-        return [...out, ...(await evaluatePitch(s, trimmed))];
+        const r = await evaluatePitch(s, trimmed);
+        return [...out, ...(s.phase === 'review' ? cardOnce(s) : []), ...r];
+      }
+      default: { // idle, fixing
+        const r = await evaluatePitch(s, trimmed);
+        return [...out, ...(s.phase === 'review' ? cardOnce(s) : []), ...r];
+      }
     }
   }
 

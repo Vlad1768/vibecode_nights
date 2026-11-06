@@ -135,7 +135,7 @@ jobs:
           node --input-type=module -e "
             import { createOpenAIClientFromEnv } from './integrations/openai/client.mjs';
             import { createCoach } from './bot/src/coach.mjs';
-            const coach = createCoach({ llm: createOpenAIClientFromEnv(process.env, { timeoutMs: 90000, maxOutputTokens: 2048 }) });
+            const coach = createCoach({ llm: createOpenAIClientFromEnv(process.env, { timeoutMs: 30000, maxOutputTokens: 2048 }) });
             const pitch = 'ЛабСклад — сервис, через который вузовские лаборатории сдают друг другу в аренду простаивающее оборудование. Дорогие приборы загружены на 30%. 23 интервью с заведующими лабораториями в 6 вузах, 17 из 23 готовы сдавать. Пилот в двух лабораториях: 9 бронирований за 6 недель. 12% комиссии с аренды, средний чек 18 000 рублей.';
             try {
               const p = await coach.evaluatePitch(pitch);
@@ -183,7 +183,7 @@ jobs:
       - name: Выкатить бота
         if: inputs.mode == 'deploy'
         run: |
-          tar -czf investor-bot.tgz bot core server integrations deploy content/investor/assets
+          tar -czf investor-bot.tgz bot core server integrations deploy content/investor/assets content/investor/investors.json
           sshpass -e scp -q investor-bot.tgz bot:/tmp/investor-bot.tgz
           # Настройки передаются через stdin: токен не попадает в аргументы команд и в журнал.
           {
