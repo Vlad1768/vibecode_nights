@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHandler } from './handler.mjs';
 import { createMemoryStore } from './store.mjs';
 import { createApp } from './index.mjs';
@@ -377,3 +378,27 @@ test('демо бьёт в слабые места питча: «конкуре�
   assert.match(s02[3].reaction, /сверху вниз/, 'реакция на рынок сверху вниз');
   assert.ok(s02[5].result.criteria.every((c) => c.level <= 2), 'слабые заявления не дают 3');
 }));
+
+test('черновик содержания T29 (Хайп-Алхимик) проходит проверку и полный раунд', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'zloy-content-'));
+  try {
+    const app = createApp({ DATA_DIR: dir, DEMO_MODE: '1', CONTENT_FILE: fileURLToPath(new URL('../core/content/hype-alchemist.json', import.meta.url)) });
+    assert.equal(app.trainer.persona().id, 'hype-alchemist');
+    for (const n of [1, 5, 10]) {
+      const pitch = DATASET[n - 1];
+      const start = await app.trainer.start({ userId: `web:ha-${n}`, pitch });
+      let last = start.body;
+      const topics = [last.topic];
+      for (let step = 1; step <= 5; step++) {
+        last = (await app.trainer.answer(start.body.sessionId, { userId: `web:ha-${n}`, step, answer: 'Не знаю.' })).body;
+        if (!last.done) topics.push(last.topic);
+      }
+      assert.deepEqual(topics, ['Клиент', 'Доказательства', 'Деньги', 'Конкуренты', 'Повторный спрос']);
+      assertResultShape(last.result, [pitch, 'Не знаю.'].join('\n'));
+      assert.deepEqual(last.result.criteria.map((c) => c.weight), [15, 12, 12, 12, 6, 12, 10, 5, 8, 8]);
+    }
+    app.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

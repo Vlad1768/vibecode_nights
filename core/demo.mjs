@@ -27,7 +27,7 @@ const HOOKS = [
   /клиент|для\s|сет[ьиям]|вуз|студент|пользовател|родител|дачник|лаборатор/iu,
   /интервью|пилот|продаж|заказ|скачиван|регистрац|опрос|бронирован|проверок|занят/iu,
   /₽|руб|подписк|комисси|цен[аы]|себестоим|чек/iu,
-  /конкурент|аналог|маркетплейс|крупн|есть\s|приложени/iu,
+  /конкурент|аналог|маркетплейс|крупн|больш\p{L}*\s+(приложени|сервис|компани|игрок)|уже\s+есть|есть,\s+но|сейчас\s+(это\s+)?(ведут|решают|делают)|excel|таблиц/iu,
   /команд|человек|выходн|сам\s|диплом|инженер|разработчик/iu,
 ];
 
@@ -85,8 +85,9 @@ function questionFor(content, slotIndex, ctx) {
   }
   const round2 = ctx.previousQuestions?.length > 0;
   let base;
-  if (slot.topic === DEFAULT_TOPICS[slotIndex]) base = QUESTIONS[slotIndex][round2 ? 1 : 0];
-  else base = `Про ${slot.goal.split(':')[0]}: что у вас есть по этому пункту, с цифрами?`;
+  if (slot.demoQuestion && !round2) base = slot.demoQuestion;
+  else if (slot.topic === DEFAULT_TOPICS[slotIndex]) base = QUESTIONS[slotIndex][round2 ? 1 : 0];
+  else base = slot.demoQuestion || `Про ${slot.goal.split(':')[0]}: что у вас есть по этому пункту, с цифрами?`;
   const used = new Set((ctx.history || []).map((h) => h.hook).filter(Boolean));
   const hook = slotIndex < 4 ? hookFor(slotIndex, ctx.pitch, used) : null;
   return { question: hook ? `В питче: «${hook}». ${base}` : base, hook };
