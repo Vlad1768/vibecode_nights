@@ -17,13 +17,13 @@ chmod 700 "$work"
 # These fingerprints were observed on the site SSH login and deploy-bot probe 42251580842.
 pin_host() {
   local name=$1 host=$2 port=$3 expected=$4
-  ssh-keyscan -T 15 -p "$port" -t ed25519 "$host" > "$work/$name.known_hosts" 2>/dev/null
+  ssh-keyscan -T 15 -p "$port" -t ed25519 "$host" > "$work/$name.known_hosts" 2>/dev/null || {
+    echo "Cannot reach SSH on the $name server" >&2; return 1;
+  }
   [ "$(ssh-keygen -lf "$work/$name.known_hosts" | awk '{print $2}')" = "$expected" ] || {
-    echo "Host key does not match the previously verified $name server" >&2; exit 1;
+    echo "Host key does not match the previously verified $name server" >&2; return 1;
   }
 }
-pin_host site "$SITE_HOST" "$SITE_PORT" 'SHA256:LHJB97Gy5ZnELZe6TafiilTJnFhAC03lJQJ5ppF//Ek'
-pin_host bot "$BOT_HOST" "$BOT_PORT" 'SHA256:8Hwg4ixNBEg10mwxst4jg7fe4u/s/3mJvyXQM6vRlBo'
 for name in site bot; do
   if [ "$name" = site ]; then host=$SITE_HOST user=$SITE_USER port=$SITE_PORT; else host=$BOT_HOST user=$BOT_USER port=$BOT_PORT; fi
   cat >> "$work/config" <<EOF
@@ -43,15 +43,29 @@ site() { SSHPASS="$SITE_PASSWORD" sshpass -e ssh -F "$work/config" site "$@"; }
 bot() { SSHPASS="$BOT_PASSWORD" sshpass -e ssh -F "$work/config" bot "$@"; }
 if [ "$MODE" != probe ] && [ -f deploy/API_KEYS_DISABLED ]; then
   # Credential retirement takes priority over every ordinary deployment change.
+  failures=0
   for target in bot site; do
-    "$target" 'install -d -m 0700 /etc/investor-api; umask 077; cat > /etc/investor-api/revoke-api-keys.sh' < deploy/revoke-api-keys.sh
-    "$target" 'bash /etc/investor-api/revoke-api-keys.sh'
+    if [ "$target" = bot ]; then
+      host=$BOT_HOST port=$BOT_PORT fingerprint='SHA256:8Hwg4ixNBEg10mwxst4jg7fe4u/s/3mJvyXQM6vRlBo'
+    else
+      host=$SITE_HOST port=$SITE_PORT fingerprint='SHA256:LHJB97Gy5ZnELZe6TafiilTJnFhAC03lJQJ5ppF//Ek'
+    fi
+    echo "Credential retirement server: $target"
+    if ! pin_host "$target" "$host" "$port" "$fingerprint"; then failures=1; continue; fi
+    if ! "$target" 'install -d -m 0700 /etc/investor-api; umask 077; cat > /etc/investor-api/revoke-api-keys.sh' < deploy/revoke-api-keys.sh ||
+       ! "$target" 'bash /etc/investor-api/revoke-api-keys.sh'; then
+      echo "Credential retirement failed on $target; continuing with the other server" >&2
+      failures=1
+    fi
   done
+  [ "$failures" = 0 ] || exit 1
   site 'curl -fsS --max-time 5 http://127.0.0.1:8787/api/health' |
     python3 -c 'import json,sys; assert json.load(sys.stdin).get("mode")=="demo"'
   echo 'Credential retirement completed; normal attach/connect was skipped.'
   exit 0
 fi
+pin_host site "$SITE_HOST" "$SITE_PORT" 'SHA256:LHJB97Gy5ZnELZe6TafiilTJnFhAC03lJQJ5ppF//Ek'
+pin_host bot "$BOT_HOST" "$BOT_PORT" 'SHA256:8Hwg4ixNBEg10mwxst4jg7fe4u/s/3mJvyXQM6vRlBo'
 for target in site bot; do
   echo "Server: $target"
   "$target" 'bash -s' < deploy/web/probe.sh
