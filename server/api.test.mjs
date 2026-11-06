@@ -360,3 +360,20 @@ test('новый питч не из датасета: без цифр, спис�
     assertResultShape(done.result, [pitch, ...[1, 2, 3, 4, 5].map((s) => `Ответ ${s}: 12 интервью, 3 оплаты по 1 500 ₽.`)].join('\n'));
   }
 }));
+
+test('демо бьёт в слабые места питча: «конкурентов нет» (11), рынок сверху вниз (02)', () => withServer(async (call) => {
+  const run = async (pitch, userId, answers) => {
+    const s = (await call('POST', '/api/sessions', { userId, pitch })).body;
+    const steps = [s];
+    for (let step = 1; step <= 5; step++) steps.push((await call('POST', `/api/sessions/${s.sessionId}/answers`, { userId, step, answer: answers[step - 1] })).body);
+    return steps;
+  };
+  const s11 = await run(DATASET[10], 'web:w11', ['Студенты.', 'Опрос.', 'Реклама.', 'Чаты.', 'Да.']);
+  assert.match(s11[3].question, /конкурентов нет/i, 'вопрос 4 по заявке 11');
+  const s02 = await run(DATASET[1], 'web:w02', ['Мы как Uber для всего.', 'Планируем запустить рекламу весной.', 'Если возьмём 1% рынка, будет 6 млрд.', 'Конкурентов нет.', 'Да.']);
+  assert.match(s02[2].question, /снизу/, 'вопрос 3 по заявке 02');
+  assert.match(s02[1].reaction, /не доказательство/, 'реакция на аналогию');
+  assert.match(s02[2].reaction, /план/i, 'реакция на планы');
+  assert.match(s02[3].reaction, /сверху вниз/, 'реакция на рынок сверху вниз');
+  assert.ok(s02[5].result.criteria.every((c) => c.level <= 2), 'слабые заявления не дают 3');
+}));

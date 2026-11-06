@@ -4,6 +4,7 @@
 import { DEFAULT_CONTENT } from './content.mjs';
 import { authorText, isDontKnow, missingParts, noticeFor } from './guard.mjs';
 import { limit, normalize, sentences } from './text.mjs';
+import { findWeak, planNotFact, weakClaim } from './claims.mjs';
 
 const DEFAULT_TOPICS = DEFAULT_CONTENT.slots.map((s) => s.topic);
 
@@ -60,8 +61,28 @@ function hookFor(slotIndex, pitch, used) {
   return s ? hookText(s) : null;
 }
 
+// Вопрос под конкретную слабость питча (банк вопросов Ивана, pitch/research/question-bank.md).
+const WEAK_QUESTIONS = [
+  ['analogy', 'Сравнение с известной компанией жюри не убедит. Кто ваш клиент? Опишите одного конкретного человека.'],
+  null,
+  ['top_down', 'Это расчёт сверху вниз. Посчитайте снизу: сколько клиентов вы реально получите, какой у них чек и как часто они платят?'],
+  ['no_competitors', 'Вы пишете, что конкурентов нет. Но привычный способ есть всегда: как клиент решает задачу сегодня и почему уйдёт от этого к вам?'],
+  null,
+];
+
+function weakQuestion(slotIndex, ctx) {
+  const rule = WEAK_QUESTIONS[slotIndex];
+  if (!rule || ctx.previousQuestions?.length) return null;
+  const found = findWeak(authorSentences(ctx.pitch), rule[0]);
+  return found ? { question: `В питче: «${hookText(found)}». ${rule[1]}`, hook: hookText(found) } : null;
+}
+
 function questionFor(content, slotIndex, ctx) {
   const slot = content.slots[slotIndex];
+  if (slot.topic === DEFAULT_TOPICS[slotIndex]) {
+    const special = weakQuestion(slotIndex, ctx);
+    if (special) return special;
+  }
   const round2 = ctx.previousQuestions?.length > 0;
   let base;
   if (slot.topic === DEFAULT_TOPICS[slotIndex]) base = QUESTIONS[slotIndex][round2 ? 1 : 0];
@@ -76,10 +97,19 @@ const REACTIONS = {
   short: ['Коротко. На сцене этого не хватит: нужна цифра или пример.', 'Одной фразы мало. Жюри переспросит.'],
   numbers: ['Цифра есть, это уже разговор.', 'С цифрой спорить легче. Дальше.'],
   plain: ['Записал. Без цифры это пока только слова.', 'Понял. Где доказательство?'],
+  top_down: ['Это расчёт сверху вниз. Жюри попросит снизу: клиенты × чек × частота.', '«Процент от рынка» — не расчёт. Сколько клиентов у вас будет на самом деле?'],
+  analogy: ['Сравнение с известной компанией — не доказательство. Нужны ваши цифры.', 'Аналогией жюри не убедить. Что уже сделали вы?'],
+  no_competitors: ['«Конкурентов нет» для жюри значит «рынок не изучен».', 'Конкурент есть всегда, хотя бы привычный способ. Назовите его.'],
+  plans: ['Это план. На сцене спросят, что уже сделано.', 'Планы есть у всех. Какой факт уже на руках?'],
 };
 
 function reactionFor(answer, step) {
-  const kind = isDontKnow(answer) ? 'dontKnow' : answer.length < 40 ? 'short' : /\d/.test(answer) ? 'numbers' : 'plain';
+  const weak = weakClaim(answer);
+  const kind = isDontKnow(answer) ? 'dontKnow'
+    : weak ? weak
+    : planNotFact(answer) ? 'plans'
+    : answer.length < 40 ? 'short'
+    : /\d/.test(answer) ? 'numbers' : 'plain';
   const list = REACTIONS[kind];
   return list[step % list.length];
 }
@@ -106,10 +136,15 @@ function scoreCriteria(source) {
   return CRITERIA_CUES.map((re, i) => {
     const hits = all.filter((s) => re.test(s));
     if (!hits.length) return { id: i + 1, level: 0, evidence: null, comment: 'Нет данных в питче и ответах.' };
-    const strong = hits.find((s) => /\d/.test(s) && PROOF.test(s));
-    const withDigits = hits.find((s) => /\d/.test(s));
+    // Слабые заявления (аналогия, рынок сверху вниз) дают не больше 1; «конкурентов нет» по рынку — 0.
+    const solid = hits.filter((s) => !weakClaim(s));
+    const strong = solid.find((s) => /\d/.test(s) && PROOF.test(s));
+    const withDigits = solid.find((s) => /\d/.test(s));
+    const usableWeak = hits.find((s) => weakClaim(s) && !(i === 2 && weakClaim(s) === 'no_competitors'));
+    const first = solid[0] || usableWeak;
+    if (!first) return { id: i + 1, level: 0, evidence: null, comment: i === 2 ? '«Конкурентов нет» для жюри значит «рынок не изучен».' : 'Нет данных в питче и ответах.' };
     const level = strong ? 3 : withDigits ? 2 : 1;
-    return { id: i + 1, level, evidence: strong || withDigits || hits[0], comment: COMMENTS[level] };
+    return { id: i + 1, level, evidence: strong || withDigits || first, comment: COMMENTS[level] };
   });
 }
 

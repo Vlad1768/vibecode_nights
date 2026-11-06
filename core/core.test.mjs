@@ -80,3 +80,29 @@ test('движок модели: промпты укладываются в ли
   }
   assert.deepEqual(Object.keys(SCHEMAS), ['START_SCHEMA', 'NEXT_SCHEMA', 'FINISH_SCHEMA']);
 });
+
+test('слабые заявления: аналогия, рынок сверху вниз, «конкурентов нет» (банк вопросов T40)', async () => {
+  const { weakClaim, planNotFact } = await import('./claims.mjs');
+  assert.equal(weakClaim('При конверсии в 1% от аудитории выходим на 6 млрд ₽ в год.'), 'top_down');
+  assert.equal(weakClaim('Аудитория — люди от 14 до 65 лет, по России это больше 100 млн человек.'), 'top_down');
+  assert.equal(weakClaim('Конкурентов почти нет, есть только чаты и знакомые.'), 'no_competitors');
+  assert.equal(weakClaim('Мы как Uber для репетиторов.'), 'analogy');
+  for (const real of ['40% клиентов заказали повторно.', '70% клиентов пришли по рекомендации.', '87% сказали, что им было бы интересно.', 'Время сократилось с 10 до 6 дней.']) {
+    assert.equal(weakClaim(real), null, real);
+  }
+  assert.ok(planNotFact('Планируем запустить рекламу весной.'));
+  assert.ok(!planNotFact('Планируем повторить: 9 бронирований за 6 недель.'));
+});
+
+test('оценка: слабое заявление не выше 1, «конкурентов нет» по рынку — 0', () => {
+  const src = 'При конверсии в 1% от аудитории выходим на 6 млрд ₽ в год. Конкурентов почти нет, есть только чаты.';
+  const c = buildCriteria([
+    { id: 10, level: 3, evidence: 'При конверсии в 1% от аудитории выходим на 6 млрд ₽ в год', comment: 'Огромный рынок.' },
+    { id: 3, level: 2, evidence: 'Конкурентов почти нет, есть только чаты', comment: 'Свободная ниша.' },
+  ], DEFAULT_CONTENT.weights, src);
+  assert.equal(c[9].level, 1);
+  assert.match(c[9].comment, /сверху вниз/);
+  assert.equal(c[2].level, 0);
+  assert.equal(c[2].evidence, null);
+  assert.match(c[2].comment, /рынок не изучен/);
+});
