@@ -12,7 +12,28 @@ healthy() {
   curl -fsS --max-time 5 http://127.0.0.1:8080/api/health |
     python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("mode")=="live"'
 }
+healthy_any() {
+  curl -fsS --max-time 5 http://127.0.0.1:8080/api/health |
+    python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("mode") in ("demo","live"); print("Existing API mode: "+j["mode"])'
+}
 case "$action" in
+verify-existing)
+  systemctl is-active --quiet investor-api
+  systemctl is-active --quiet investor-bot
+  healthy_any
+  python3 - <<'PY'
+from pathlib import Path
+p=Path('/etc/investor-bot/bot.env')
+values={}
+for line in p.read_text().splitlines():
+    if '=' in line:
+        k,v=line.split('=',1); values[k.strip()]=v.strip().strip(chr(34)).strip(chr(39))
+if values.get('TRAINER_API_URL') != 'http://127.0.0.1:8080':
+    raise SystemExit('Existing bot is not connected to the expected API; attach will not change it')
+print('Existing bot already uses shared API; its code, token, environment and service are preserved.')
+PY
+  curl -fsS --max-time 5 http://127.0.0.1:8081/health | python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("api")=="http"'
+  ;;
 prepare)
   [ "$(id -u)" = 0 ]
   [ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 22 ]
@@ -81,8 +102,8 @@ EOF
   echo 'Shared API health verified in live mode; no generation request was made.'
   ;;
 authorize)
-  healthy
-  pubkey=/etc/investor-api/site-tunnel.pub
+  healthy_any
+  pubkey=/run/fightinvestor-connect/site-tunnel.pub
   ssh-keygen -lf "$pubkey" >/dev/null
   grep -q '^ssh-ed25519 ' "$pubkey"
   [ "$(wc -l < "$pubkey")" -le 1 ]
@@ -108,6 +129,7 @@ Match all
 EOF
   /usr/sbin/sshd -t
   systemctl reload ssh
+  rm -- "$pubkey"
   echo 'Restricted tunnel key authorized; root SSH settings unchanged.'
   ;;
 attach-bot)

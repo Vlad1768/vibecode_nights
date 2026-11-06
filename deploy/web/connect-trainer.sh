@@ -3,7 +3,7 @@
 set -euo pipefail
 set +x
 MODE=${MODE:-probe}
-[[ "$MODE" == probe || "$MODE" == connect ]]
+[[ "$MODE" == probe || "$MODE" == attach || "$MODE" == connect ]]
 for name in SITE_HOST SITE_USER SITE_PORT SITE_PASSWORD BOT_HOST BOT_USER BOT_PORT BOT_PASSWORD RELEASE_ID; do
   [ -n "${!name:-}" ] || { echo "Missing setting: $name" >&2; exit 1; }
 done
@@ -45,13 +45,14 @@ for target in site bot; do
   echo "Server: $target"
   "$target" 'bash -s' < deploy/web/probe.sh
 done
-[ "$MODE" = connect ] || exit 0
+[ "$MODE" != probe ] || exit 0
 
 # Create only our release paths. The existing Telegram source and token remain in place.
-tar -czf "$work/api.tgz" server core integrations/gemini
 tar -czf "$work/web.tgz" web
-SSHPASS="$BOT_PASSWORD" sshpass -e scp -F "$work/config" -q "$work/api.tgz" bot:/tmp/investor-shared-api.tgz
 SSHPASS="$SITE_PASSWORD" sshpass -e scp -F "$work/config" -q "$work/web.tgz" site:/tmp/investor-shared-web.tgz
+if [ "$MODE" = connect ]; then
+tar -czf "$work/api.tgz" server core integrations/gemini
+SSHPASS="$BOT_PASSWORD" sshpass -e scp -F "$work/config" -q "$work/api.tgz" bot:/tmp/investor-shared-api.tgz
 bot "bash -s -- prepare '$RELEASE_ID' '$SITE_HOST'" < deploy/web/remote-bot.sh
 
 # The Gemini key crosses encrypted SSH streams; it is not printed or saved on the runner.
@@ -66,14 +67,22 @@ print("GEMINI_API_KEY="+key)
 print("GEMINI_MODEL=gemini-4-argon\nHOST=127.0.0.1\nPORT=8080\nAI_FALLBACK=off\nDEMO_MODE=0\nDATA_DIR=/var/lib/investor-api\nNODE_ENV=production")'\''' |
   bot 'umask 077; cat > /etc/investor-api/api.env.next'
 bot "bash -s -- activate '$RELEASE_ID' '$SITE_HOST'" < deploy/web/remote-bot.sh
+else
+  # Reuse Ivan's working API (including its explicit demo/live mode) without replacing it.
+  bot "bash -s -- verify-existing '$RELEASE_ID' '$SITE_HOST'" < deploy/web/remote-bot.sh
+fi
 
 # The tunnel private key is generated and retained on the site server only.
 site "bash -s -- prepare '$RELEASE_ID' '$BOT_HOST' '$BOT_PORT'" < deploy/web/remote-site.sh
+bot 'install -d -m 0700 -o root -g root /run/fightinvestor-connect'
 site 'cat /etc/fightinvestor-tunnel/id_ed25519.pub' |
-  bot 'umask 077; cat > /etc/investor-api/site-tunnel.pub'
+  bot 'umask 077; cat > /run/fightinvestor-connect/site-tunnel.pub'
 bot "bash -s -- authorize '$RELEASE_ID' '$SITE_HOST'" < deploy/web/remote-bot.sh
 cat "$work/bot.known_hosts" | site 'umask 077; cat > /etc/fightinvestor-tunnel/known_hosts; chown root:investortunnel /etc/fightinvestor-tunnel/known_hosts; chmod 640 /etc/fightinvestor-tunnel/known_hosts'
 site "bash -s -- activate '$RELEASE_ID' '$BOT_HOST' '$BOT_PORT'" < deploy/web/remote-site.sh
 # Change only TRAINER_API_URL, and only after both the API and web gateway are healthy.
-bot "bash -s -- attach-bot '$RELEASE_ID' '$SITE_HOST'" < deploy/web/remote-bot.sh
-echo 'Connected: website gateway and existing Telegram bot use the same live API.'
+if [ "$MODE" = connect ]; then
+  bot "bash -s -- attach-bot '$RELEASE_ID' '$SITE_HOST'" < deploy/web/remote-bot.sh
+fi
+site 'curl -fsS --max-time 5 http://127.0.0.1:8787/api/health'
+echo 'Connected: website gateway and existing Telegram bot use the same shared API. See health for demo/live mode.'

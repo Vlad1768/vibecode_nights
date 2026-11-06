@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'probe reads both servers; connect deploys the shared API and connects the existing bot and website'
+        description: 'probe reads servers; attach connects website to the existing API; connect also deploys API'
         type: choice
-        options: [probe, connect]
+        options: [probe, attach, connect]
         default: probe
 
 concurrency:
@@ -38,7 +38,7 @@ jobs:
         with:
           node-version: 24
       - name: Validate application before connecting
-        if: inputs.mode == 'connect'
+        if: inputs.mode != 'probe'
         run: |
           node --check web/gateway.mjs
           node --test core/*.test.mjs server/*.test.mjs web/gateway.test.mjs

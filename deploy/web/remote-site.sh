@@ -47,7 +47,7 @@ EOF
   systemctl restart fightinvestor-tunnel
   success=0
   for attempt in $(seq 1 15); do
-    if curl -fsS --max-time 3 http://127.0.0.1:18080/api/health | python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("mode")=="live"'; then success=1; break; fi
+    if curl -fsS --max-time 3 http://127.0.0.1:18080/api/health | python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("mode") in ("demo","live")'; then success=1; break; fi
     sleep 1
   done
   [ "$success" = 1 ] || { echo 'Private tunnel failed; existing website remains active'; exit 1; }
@@ -107,14 +107,14 @@ EOF
   systemctl restart fightinvestor
   success=0
   for attempt in $(seq 1 15); do
-    if curl -fsS --max-time 5 http://127.0.0.1:8787/api/health | python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("mode")=="live"'; then success=1; break; fi
+    if curl -fsS --max-time 5 http://127.0.0.1:8787/api/health | python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("mode") in ("demo","live")'; then success=1; break; fi
     sleep 1
   done
   [ "$success" = 1 ]
   for file in index.html styles.css app.mjs demo.mjs motion.css motion.mjs; do install -m 0644 "$release_dir/web/$file" "/var/www/fightinvestor/$file"; done
   nginx -t
   curl -fsS --max-time 5 http://127.0.0.1/api/health -H 'Host: fightinvestor.ru' |
-    python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("mode")=="live"'
+    python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("mode") in ("demo","live")'
   trap - ERR
   rm -- /tmp/investor-shared-web.tgz
   echo 'Website gateway and public files switched to shared API; health passed.'
