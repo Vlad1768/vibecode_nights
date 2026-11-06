@@ -1,0 +1,108 @@
+# T30: деплой Telegram-бота на сервер (docs/BOT_DEPLOY.md).
+# Запуск: Actions → deploy-bot → Run workflow. mode=probe только смотрит сервер, ничего не меняя.
+name: deploy-bot
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'probe — осмотреть сервер; deploy — выкатить бота'
+        type: choice
+        options: [deploy, probe]
+        default: deploy
+
+concurrency:
+  group: deploy-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Тесты бота
+        working-directory: bot
+        run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MODE: ${{ inputs.mode }}
+      SERVER_HOST: ${{ vars.BOT_SERVER_HOST }}
+      SERVER_USER: ${{ vars.BOT_SERVER_USER }}
+      SERVER_PORT: ${{ vars.BOT_SERVER_PORT || '22' }}
+      SSHPASS: ${{ secrets.BOT_SERVER_PASSWORD }}
+      BOT_TELEGRAM_TOKEN: ${{ secrets.BOT_TELEGRAM_TOKEN }}
+      TRAINER_API_URL: ${{ vars.TRAINER_API_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверка настроек
+        run: |
+          missing=""
+          [ -n "$SERVER_HOST" ] || missing="$missing Variable:BOT_SERVER_HOST"
+          [ -n "$SERVER_USER" ] || missing="$missing Variable:BOT_SERVER_USER"
+          [ -n "$SSHPASS" ] || missing="$missing Secret:BOT_SERVER_PASSWORD"
+          if [ "$MODE" = deploy ] && [ -z "$BOT_TELEGRAM_TOKEN" ]; then missing="$missing Secret:BOT_TELEGRAM_TOKEN"; fi
+          if [ -n "$missing" ]; then echo "::error::Не заданы:$missing (Settings → Secrets and variables → Actions)"; exit 1; fi
+
+      - name: Проверка токена Telegram (getMe)
+        if: inputs.mode == 'deploy'
+        run: |
+          code=$(curl -s -o me.json -w '%{http_code}' "https://api.telegram.org/bot${BOT_TELEGRAM_TOKEN}/getMe")
+          if [ "$code" != 200 ]; then echo "::error::Telegram отклонил токен (HTTP $code)"; exit 1; fi
+          python3 -c "import json;r=json.load(open('me.json'))['result'];print('Бот: @'+r['username'])"
+          rm -f me.json
+
+      - name: SSH-клиент и ключ хоста
+        run: |
+          sudo apt-get install -y -qq sshpass >/dev/null
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -T 15 -p "$SERVER_PORT" "$SERVER_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          [ -s ~/.ssh/known_hosts ] || { echo "::error::Сервер $SERVER_HOST:$SERVER_PORT не отвечает по SSH"; exit 1; }
+          echo "Отпечатки ключа хоста (сверить при первом входе):"
+          ssh-keygen -lf ~/.ssh/known_hosts
+          printf '%s\n' \
+            'Host bot' \
+            "  HostName $SERVER_HOST" \
+            "  User $SERVER_USER" \
+            "  Port $SERVER_PORT" \
+            '  StrictHostKeyChecking yes' \
+            '  PreferredAuthentications password' \
+            '  PubkeyAuthentication no' \
+            '  ConnectTimeout 20' \
+            '  ServerAliveInterval 15' > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Осмотр сервера
+        run: |
+          sshpass -e ssh bot 'set +e
+            . /etc/os-release 2>/dev/null; echo "ОС: ${PRETTY_NAME:-?}"
+            echo "Ядро: $(uname -r)  Арх: $(uname -m)"
+            echo "Node: $(node -v 2>/dev/null || echo нет)"
+            echo "systemd: $(systemctl --version 2>/dev/null | head -1 || echo нет)"
+            echo "Диск:"; df -h / | tail -1
+            echo "Память:"; free -m | head -2
+            echo "Сервис бота: $(systemctl is-active investor-bot 2>/dev/null || echo нет)"'
+
+      - name: Выкатить бота
+        if: inputs.mode == 'deploy'
+        run: |
+          tar -czf investor-bot.tgz bot deploy/bot
+          sshpass -e scp -q investor-bot.tgz bot:/tmp/investor-bot.tgz
+          # Настройки передаются через stdin: токен не попадает в аргументы команд и в журнал.
+          {
+            printf 'BOT_TELEGRAM_TOKEN=%s\n' "$BOT_TELEGRAM_TOKEN"
+            printf 'BOT_HEALTH_PORT=8081\n'
+            printf 'TRAINER_API_URL=%s\n' "$TRAINER_API_URL"
+            printf 'NODE_ENV=production\n'
+          } | sshpass -e ssh bot 'umask 077; cat > /tmp/investor-bot.env'
+          sshpass -e ssh bot 'bash -s' < deploy/bot/remote-install.sh

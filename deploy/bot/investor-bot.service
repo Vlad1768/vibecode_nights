@@ -1,0 +1,24 @@
+[Unit]
+Description=Telegram-бот «Злой инвестор» (T27/T30)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=investorbot
+Group=investorbot
+WorkingDirectory=/opt/investor-bot/bot
+# Токен и настройки: /etc/investor-bot/bot.env (0640 root:investorbot), в Git не хранится.
+EnvironmentFile=/etc/investor-bot/bot.env
+ExecStart=/usr/bin/env node src/main.mjs
+Restart=always
+RestartSec=5
+# Журнал — в journald: journalctl -u investor-bot
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+
+[Install]
+WantedBy=multi-user.target
