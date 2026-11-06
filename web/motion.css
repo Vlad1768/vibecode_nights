@@ -4,12 +4,12 @@
   isolation: isolate;
   height: clamp(180px, 17vw, 240px);
   overflow: hidden;
-  background-color: #fffefa;
+  background-color: #120c09;
   background-image:
-    repeating-linear-gradient(0deg, transparent 0 6px, #fffefa 6px 8px),
-    repeating-linear-gradient(90deg, transparent 0 6px, #fffefa 6px 8px),
-    linear-gradient(125deg, #fffefa 10%, #ffad74 38%, #ff5c00 62%, #171614 88%);
-  border-block: 1px solid #d8d5ce;
+    repeating-linear-gradient(0deg, transparent 0 6px, #120c09 6px 8px),
+    repeating-linear-gradient(90deg, transparent 0 6px, #120c09 6px 8px),
+    linear-gradient(125deg, #1c110b 10%, #78300b 38%, #ff5c00 62%, #120c09 88%);
+  border-block: 1px solid #423227;
   contain: layout paint;
 }
 

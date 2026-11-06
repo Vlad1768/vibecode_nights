@@ -887,7 +887,7 @@ function handleApiError(err, retryFn) {
     saveState();
     renderApp();
     showError(
-      'Сессия истекла или не найдена (SESSION_NOT_FOUND)',
+      'Начните новый раунд',
       'Сессия на сервере завершилась. Ваш текст питча полностью сохранён — нажмите «Отправить питч», чтобы начать заново.',
       () => handlePitchSubmit()
     );
@@ -911,7 +911,7 @@ function handleApiError(err, retryFn) {
     renderApiStatus();
     // При лимите Gemini показываем ошибку и кнопку повтора, НЕ подменяем деморежимом
     showError(
-      'Превышен лимит запросов к Gemini (QUOTA)',
+      'Сейчас у Gemini нет доступной квоты',
       err.message || 'Исчерпана квота обращения к модели Gemini Argon. Ваш текст сохранён. Подождите немного и нажмите «Повторить отправку».',
       retryFn
     );
@@ -926,7 +926,7 @@ function handleApiError(err, retryFn) {
   }
 
   showError(
-    `Ошибка связи с ИИ (${err.code || 'ERROR'})`,
+    'Не удалось связаться с инвестором',
     err.message || 'Не удалось выполнить запрос. Введённый вами текст сохранён, вы можете повторить попытку.',
     retryFn
   );

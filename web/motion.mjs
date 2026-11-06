@@ -1,5 +1,5 @@
 /** Decorative, dependency-free progressive enhancement. No app state or API access. */
-const PALETTE = ['#ece7dd', '#faf7f0', '#ffdcc4', '#ffac71', '#ff7730', '#ff5c00', '#75300e', '#171614'];
+const PALETTE = ['#1c110b', '#2a160c', '#48220e', '#78300b', '#b84108', '#ed530a', '#ff7629', '#ffad67'];
 const FRAME_MS = 1000 / 30;
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 let mounted = false;
@@ -38,7 +38,7 @@ export function mountMotion() {
 
   function paint() {
     if (!ctx || !width || !height) return;
-    ctx.fillStyle = '#fffefa';
+    ctx.fillStyle = '#120c09';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     const gap = 2;
     const size = Math.max(1, Math.round((cell - gap) * dpr));
@@ -67,7 +67,7 @@ export function mountMotion() {
         energy += wake;
         const color = clamp(Math.floor(energy * PALETTE.length), 0, PALETTE.length - 1);
         // Sparse hot squares trace the pointer without strobing the whole field.
-        ctx.fillStyle = wake > 0.18 && noise > 0.84 ? '#ffd29a' : PALETTE[color];
+        ctx.fillStyle = wake > 0.18 && noise > 0.93 ? '#fff0da' : PALETTE[color];
         ctx.fillRect(Math.round((x + 1) * dpr), Math.round((y + 1) * dpr), size, size);
       }
     }
