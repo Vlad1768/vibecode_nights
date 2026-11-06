@@ -275,7 +275,14 @@ export function createDialog({ api, coach = null, media = null, store = createSt
   async function startQuestions(s) {
     const sess = s.session;
     try {
-      const step = await api.start({ userId: s.userId, pitch: sess.versions.at(-1), previousSessionId: null });
+      let step;
+      try {
+        step = await api.start({ userId: s.userId, pitch: sess.versions.at(-1), previousSessionId: null, personaId: sess.persona?.apiId ?? undefined });
+      } catch (err) {
+        // Старый API без выбора персонажа отвечает 400 — тогда начинаем без personaId.
+        if (!(err instanceof ApiError && err.code === 'BAD_REQUEST' && sess.persona?.apiId)) throw err;
+        step = await api.start({ userId: s.userId, pitch: sess.versions.at(-1), previousSessionId: null });
+      }
       sess.apiSessionId = step.sessionId;
       s.pending = null;
       return showQuestion(s, step);

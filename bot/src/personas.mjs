@@ -5,6 +5,9 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// ID персонажей в общем API (core/personas.mjs, docs/PERSONA_SELECTION.md).
+export const API_PERSONA_IDS = Object.freeze({ '01': 'angel', '02': 'corporate', '03': 'grant', '04': 'venture', '05': 'hype-alchemist' });
+
 export const DEFAULT_DIR = fileURLToPath(new URL('../../content/investor/', import.meta.url));
 
 export function loadPersonas(dir = DEFAULT_DIR) {
@@ -30,6 +33,7 @@ export function loadPersonas(dir = DEFAULT_DIR) {
         who: p.who ?? '', wants: p.wants ?? '', fears: p.fears ?? '', invests: p.invests ?? '', never: p.never ?? '',
         behavior: p.behavior ?? '', question: p.question ?? '',
         imagePath: image ? join(assets, image) : null,
+        apiId: API_PERSONA_IDS[p.id] ?? null,
       };
     });
 }

@@ -270,3 +270,27 @@ test('питч без /start: карточка персонажа приходи
   assert.equal(r[0].photo, 'persona');
   assert.match(r[1].text, /^📊 Оценка питча/);
 });
+
+test('случайный персонаж уходит в общий API как personaId; старый API без выбора — запасной путь', async () => {
+  const { loadPersonas } = await import('../src/personas.mjs');
+  const api = createMockApi();
+  const starts = [];
+  const orig = api.start;
+  let rejectPersona = false;
+  api.start = (req) => {
+    starts.push(req.personaId);
+    if (rejectPersona && req.personaId) return Promise.reject(new ApiError('BAD_REQUEST', 'unknown field', { fromServer: true }));
+    return orig(req);
+  };
+  const dialog = createDialog({ api, coach: fakeCoach(), personas: loadPersonas(), random: () => 0 });
+  const send = (input) => dialog.handle({ chatId: 22, userId: 'tg:22', ...input });
+  await send({ text: PITCH });
+  await send({ callback: 'go' });
+  assert.equal(starts[0], 'angel');
+  rejectPersona = true;
+  await send({ text: '/new' });
+  await send({ text: PITCH });
+  const [q] = await send({ callback: 'go' });
+  assert.match(q.text, /^Вопрос 1\/5/);
+  assert.equal(starts.at(-1), undefined);
+});

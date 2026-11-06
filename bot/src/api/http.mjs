@@ -60,8 +60,9 @@ export function createHttpApi({ baseUrl, timeoutMs = 60_000, fetchImpl = globalT
   return {
     mode: 'http',
     persona: () => request('GET', '/api/persona', null, isPersona),
-    start: ({ userId, pitch, previousSessionId = null }) =>
-      request('POST', '/api/sessions', { userId, pitch, previousSessionId }, isStepOrDone),
+    // personaId (необязательно) — характер инвестора из GET /api/personas (docs/PERSONA_SELECTION.md).
+    start: ({ userId, pitch, previousSessionId = null, personaId }) =>
+      request('POST', '/api/sessions', personaId ? { userId, pitch, previousSessionId, personaId } : { userId, pitch, previousSessionId }, isStepOrDone),
     // step необязателен (совместимость с временной схемой), но с ним повтор безопасен.
     answer: ({ sessionId, userId, step, answer }) =>
       request('POST', `/api/sessions/${sid(sessionId)}/answers`, step == null ? { userId, answer } : { userId, step, answer }, isStepOrDone),
