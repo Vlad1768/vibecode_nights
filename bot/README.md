@@ -35,10 +35,10 @@ npm test   # автономные тесты: без сети и реальны�
 | `src/main.mjs` | Цикл опроса Telegram, повторы при сбоях сети, корректная остановка по SIGTERM, health-check |
 | `src/dialog.mjs` | Диалог без сети: состояние на каждую пару (чат, пользователь), команды, тексты, обработка ошибок |
 | `src/telegram.mjs` | Клиент Bot API; длинные ответы делятся на части по 4096 символов |
-| `src/api/http.mjs` | Клиент общего API. **Схема временная до контракта T25** — после него меняется только этот файл |
-| `src/api/mock.mjs` | Заглушка API той же формы |
+| `src/api/http.mjs` | Клиент общего API по контракту 1.0 |
+| `src/api/mock.mjs` | Встроенная заглушка той же формы — демо, если `TRAINER_API_URL` не задан |
 
-Команды бота: `/start`, `/new` (новый раунд), `/retry` (повторить запрос после сбоя), `/cancel`, `/help`.
+Команды бота (меню Telegram ставится при запуске): `/start` (карточка инвестора), `/new`, `/again` (второй раунд по прошлому питчу, итог «было → стало»), `/result`, `/how`, `/retry`, `/cancel`, `/delete` (удалить мои данные в API), `/help`.
 
 ## Что гарантируется
 
@@ -48,15 +48,17 @@ npm test   # автономные тесты: без сети и реальны�
 - **Понятные ответы** на пустой, слишком длинный (> 4000 символов) и нетекстовый ввод.
 - **Секреты:** токен читается только из окружения; журнал (JSON-строки) не содержит токена и текстов сообщений.
 
-## Временная схема API (до T25)
+## API
 
+Бот работает по [docs/CONTRACT.md](../docs/CONTRACT.md) версии 1.0: показывает карточку персонажа, факты из питча («что я понял»), реакцию и `notice` перед вопросом, итог с уровнями критериев, сильным/слабым и тремя советами (`advice[i].text`). Ответ шлётся с `step`, поэтому `/retry` безопасен; при `STEP_MISMATCH` и `SESSION_DONE` бот берёт актуальное состояние через `GET`. Текст ошибок API показывается как есть, для `EMPTY_PITCH` — со списком «не хватает».
+
+Разработка против мока контракта:
+
+```bash
+node contract/mock-server.mjs &                    # из корня репо
+TRAINER_API_URL=http://127.0.0.1:8080 BOT_TELEGRAM_TOKEN=... npm start
 ```
-POST /api/sessions               {userId, pitch}  → {sessionId, step, totalSteps, question}
-POST /api/sessions/{id}/answers  {userId, answer} → {sessionId, step, totalSteps, question}
-                                                  | {sessionId, done: true, result}
-result = {criteria: [{name, score, max, comment}] ×10, total, max, advice: [строка] ×3}
-ошибка: HTTP 4xx/5xx + {error: {code, message}}
-code: EMPTY_PITCH, PITCH_TOO_LONG, EMPTY_ANSWER, ANSWER_TOO_LONG, SESSION_NOT_FOUND, RATE_LIMITED, AI_UNAVAILABLE
-```
+
+`test/contract.test.mjs` прогоняет диалог бота через HTTP против этого мока.
 
 Деплой на сервер — T30 (`deploy/bot/`, `docs/BOT_DEPLOY.md`).

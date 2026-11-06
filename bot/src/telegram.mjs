@@ -68,6 +68,9 @@ export function createTelegram({ token, fetchImpl = globalThis.fetch, baseUrl = 
         await call('sendMessage', { chat_id: chatId, text: part, link_preview_options: { is_disabled: true } });
       }
     },
+    // Меню команд в клиенте Telegram: [[команда, описание], ...]
+    setCommands: (commands) =>
+      call('setMyCommands', { commands: commands.map(([command, description]) => ({ command, description })) }),
     sendTyping: (chatId) => call('sendChatAction', { chat_id: chatId, action: 'typing' }).catch(() => {}),
   };
 }

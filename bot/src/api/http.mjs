@@ -1,13 +1,13 @@
-// HTTP-клиент общего API тренажёра (T28).
-// ВРЕМЕННАЯ СХЕМА до контракта T25 (предложена в канале агентов, issue #1):
-//   POST {base}/api/sessions               {userId, pitch}  → {sessionId, step, totalSteps, question}
-//   POST {base}/api/sessions/{id}/answers  {userId, answer} → {sessionId, step, totalSteps, question}
-//                                                          | {sessionId, done: true, result}
-//   ошибка: HTTP 4xx/5xx + {error: {code, message}}
-// После T25 меняется только этот файл.
+// HTTP-клиент общего API тренажёра (T28) по docs/CONTRACT.md версии 1.0.
+//   GET    /api/persona
+//   POST   /api/sessions                  {userId, pitch, previousSessionId?} → 201 Step (+facts)
+//   POST   /api/sessions/{id}/answers     {userId, step, answer}              → 200 Step | Done
+//   GET    /api/sessions/{id}?userId=…                                         → 200 Step | Done
+//   DELETE /api/users/{userId}                                                 → 204
+//   ошибка: {error: {code, message, missing?, retryAfterSec?}}
 import { ApiError } from './errors.mjs';
 
-function validateStep(data) {
+function isStepOrDone(data) {
   if (!data || typeof data.sessionId !== 'string') return false;
   if (data.done === true) {
     const r = data.result;
@@ -16,38 +16,57 @@ function validateStep(data) {
   return typeof data.question === 'string' && Number.isInteger(data.step);
 }
 
+function isPersona(data) {
+  return !!data && typeof data.intro === 'string' && typeof data.name === 'string';
+}
+
 export function createHttpApi({ baseUrl, timeoutMs = 60_000, fetchImpl = globalThis.fetch }) {
   if (!baseUrl) throw new Error('TRAINER_API_URL не задан');
 
-  async function post(path, body) {
+  async function request(method, path, body, validate) {
     let res;
     try {
       res = await fetchImpl(`${baseUrl}${path}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify(body),
+        method,
+        headers: body ? { 'content-type': 'application/json', accept: 'application/json' } : { accept: 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
       const timeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
       throw new ApiError(timeout ? 'TIMEOUT' : 'NETWORK', timeout ? 'API не ответил вовремя' : 'API недоступен');
     }
+    if (res.status === 204) return null;
     const data = await res.json().catch(() => null);
     if (!res.ok) {
-      const code = data?.error?.code;
-      if (code) throw new ApiError(code, String(data.error.message ?? code));
+      const e = data?.error;
+      if (e?.code) {
+        throw new ApiError(e.code, String(e.message ?? e.code), {
+          missing: e.missing,
+          retryAfterSec: e.retryAfterSec,
+          fromServer: true,
+        });
+      }
       if (res.status === 429) throw new ApiError('RATE_LIMITED');
       if (res.status === 404) throw new ApiError('SESSION_NOT_FOUND');
       throw new ApiError(res.status >= 500 ? 'AI_UNAVAILABLE' : 'BAD_RESPONSE', `HTTP ${res.status}`);
     }
-    if (!validateStep(data)) throw new ApiError('BAD_RESPONSE', 'Неожиданный ответ API');
+    if (validate && !validate(data)) throw new ApiError('BAD_RESPONSE', 'Неожиданный ответ API');
     return data;
   }
 
+  const sid = (id) => encodeURIComponent(id);
+
   return {
     mode: 'http',
-    start: ({ userId, pitch }) => post('/api/sessions', { userId, pitch }),
-    answer: ({ sessionId, userId, answer }) =>
-      post(`/api/sessions/${encodeURIComponent(sessionId)}/answers`, { userId, answer }),
+    persona: () => request('GET', '/api/persona', null, isPersona),
+    start: ({ userId, pitch, previousSessionId = null }) =>
+      request('POST', '/api/sessions', { userId, pitch, previousSessionId }, isStepOrDone),
+    // step необязателен (совместимость с временной схемой), но с ним повтор безопасен.
+    answer: ({ sessionId, userId, step, answer }) =>
+      request('POST', `/api/sessions/${sid(sessionId)}/answers`, step == null ? { userId, answer } : { userId, step, answer }, isStepOrDone),
+    get: ({ sessionId, userId }) =>
+      request('GET', `/api/sessions/${sid(sessionId)}?userId=${encodeURIComponent(userId)}`, null, isStepOrDone),
+    deleteUser: ({ userId }) => request('DELETE', `/api/users/${encodeURIComponent(userId)}`, null, null),
   };
 }
