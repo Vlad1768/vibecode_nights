@@ -80,6 +80,8 @@ site 'cat /etc/fightinvestor-tunnel/id_ed25519.pub' |
 bot "bash -s -- authorize '$RELEASE_ID' '$SITE_HOST'" < deploy/web/remote-bot.sh
 cat "$work/bot.known_hosts" | site 'umask 077; cat > /etc/fightinvestor-tunnel/known_hosts; chown root:investortunnel /etc/fightinvestor-tunnel/known_hosts; chmod 640 /etc/fightinvestor-tunnel/known_hosts'
 site "bash -s -- activate '$RELEASE_ID' '$BOT_HOST' '$BOT_PORT'" < deploy/web/remote-site.sh
+# Domain, DNS and the known nginx layout are checked remotely before TLS changes.
+site 'bash -s' < deploy/web/secure-site.sh
 # Change only TRAINER_API_URL, and only after both the API and web gateway are healthy.
 if [ "$MODE" = connect ]; then
   bot "bash -s -- attach-bot '$RELEASE_ID' '$SITE_HOST'" < deploy/web/remote-bot.sh

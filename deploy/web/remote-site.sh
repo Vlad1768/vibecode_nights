@@ -145,7 +145,7 @@ EOF
     install -m 0644 "$release_dir/web/$file" "$public_dir/$file"
   done
   nginx -t
-  curl -fsS --max-time 5 http://127.0.0.1/api/health -H 'Host: fightinvestor.ru' |
+  curl -fsSL --proto-redir '=https' --resolve fightinvestor.ru:443:127.0.0.1 --max-time 10 http://127.0.0.1/api/health -H 'Host: fightinvestor.ru' |
     python3 -c 'import sys,json; j=json.load(sys.stdin); assert j.get("ok") is True and j.get("mode") in ("demo","live")'
   trap - ERR
   rm -- /tmp/investor-shared-web.tgz
