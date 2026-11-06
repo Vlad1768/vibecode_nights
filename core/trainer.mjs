@@ -8,7 +8,7 @@
 //  - сбой модели не теряет питч и ответы: срабатывает демо-движок (или 503, если запасной режим выключен).
 import { randomUUID } from 'node:crypto';
 import { personaView } from './content.mjs';
-import { checkAnswer, checkPitch, missingParts, authorText, noticeFor, NOTICE_BEGGING, TOTAL_STEPS, TrainerError } from './guard.mjs';
+import { badOutput, checkAnswer, checkPitch, missingParts, authorText, noticeFor, NOTICE_BEGGING, TOTAL_STEPS, TrainerError } from './guard.mjs';
 import { buildCriteria, pickAdvice, summaryFrom, totalOf } from './scoring.mjs';
 import { createDemoEngine, reserveAdvice } from './demo.mjs';
 import { clean, limit, numbersCovered } from './text.mjs';
@@ -70,7 +70,7 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
 
   function goodQuestion(q, source) {
     const t = clean(q);
-    return t.length >= 10 && t.length <= 400 && numbersCovered(t, source);
+    return t.length >= 10 && t.length <= 400 && numbersCovered(t, source) && !badOutput(t);
   }
 
   async function questionOrDemo(op, ctx, given, source) {
@@ -80,7 +80,7 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
 
   function cleanFacts(raw, pitch) {
     const list = (arr, max, len) => (Array.isArray(arr) ? arr : [])
-      .map((x) => limit(x, len)).filter((x) => x && numbersCovered(x, pitch)).slice(0, max);
+      .map((x) => limit(x, len)).filter((x) => x && numbersCovered(x, pitch) && !badOutput(x)).slice(0, max);
     return { known: list(raw?.known, 6, 200), missing: list(raw?.missing, 6, 80) };
   }
 
@@ -193,7 +193,7 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
         const { data, demo: isDemo } = await run('next', ctx, (d) => d && typeof d.question === 'string');
         const question = await questionOrDemo('next', ctx, data.question, source);
         const reactionText = limit(data.reaction, 200);
-        const reaction = reactionText && numbersCovered(reactionText, source) ? reactionText : (await demo.next(ctx)).reaction;
+        const reaction = reactionText && numbersCovered(reactionText, source) && !badOutput(reactionText) ? reactionText : (await demo.next(ctx)).reaction;
         s.steps[step] = { topic: content.slots[step].topic, question, hook: data.hook ?? null, demo: isDemo };
         s.steps.length = step + 1;
         const notice = answerNotice || noticeFor(text) || (data.manipulation === true ? NOTICE_BEGGING : null);
@@ -208,7 +208,10 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
           criteria,
           total: totalOf(criteria),
           max: 100,
-          summary: summaryFrom(criteria, { strong: data.strong, weak: data.weak }),
+          summary: summaryFrom(criteria, {
+            strong: numbersCovered(data.strong, source) && !badOutput(data.strong) ? data.strong : '',
+            weak: numbersCovered(data.weak, source) && !badOutput(data.weak) ? data.weak : '',
+          }),
           advice,
           previousTotal: s.previousTotal,
         };

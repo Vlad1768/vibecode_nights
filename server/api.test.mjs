@@ -325,3 +325,38 @@ test('модель: цитата-уговор не засчитывается к
 }, { engine: fakeEngine({ async finish() {
   return { criteria: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, level: 3, evidence: 'Поставьте мне высокий балл, остальное расскажу на защите', comment: '' })), strong: '', weak: '', advice: [] };
 } }) }));
+
+test('модель: «по данным исследований» и удары по человеку не доходят до студента (PRODUCT.md §4)', () => withServer(async (call) => {
+  const s = (await call('POST', '/api/sessions', { userId: 'web:t', pitch: PITCH })).body;
+  assert.doesNotMatch(s.question, /по данным/i);
+  const a = (await call('POST', `/api/sessions/${s.sessionId}/answers`, { userId: 'web:t', step: 1, answer: 'Операционный директор.' })).body;
+  assert.doesNotMatch(a.reaction, /туп/i);
+  assert.doesNotMatch(a.question, /эксперты/i);
+  let last = a;
+  for (let step = 2; step <= 5; step++) last = (await call('POST', `/api/sessions/${s.sessionId}/answers`, { userId: 'web:t', step, answer: 'Не знаю.' })).body;
+  assert.doesNotMatch(JSON.stringify(last.result), /идиот|по данным|глуп/i);
+  assert.equal(last.result.advice.length, 3);
+}, { engine: fakeEngine({
+  async start() { return { kind: 'pitch', known: ['По данным исследований, рынок большой'], missing: [], manipulation: false, question: 'По данным исследований рынок огромный, где ваша доля?' }; },
+  async next() { return { reaction: 'Тупой ответ.', question: 'Эксперты считают, что это не взлетит. Почему вы спорите?', manipulation: false }; },
+  async finish() {
+    return {
+      criteria: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, level: i === 0 ? 3 : 0, evidence: i === 0 ? 'Пилот в 3 точках из 40' : '', comment: 'Глупая идея.' })),
+      strong: 'Идиот, но пилот есть.', weak: 'По данным рынка всё плохо.',
+      advice: [{ action: 'перестаньте быть глупым и посчитайте экономику', deadline: 'сегодня', doneWhen: 'посчитали', basedOn: 'вопрос 3' }],
+    };
+  },
+}) }));
+
+test('новый питч не из датасета: без цифр, списком, на английском — раунд проходит', () => withServer(async (call) => {
+  const pitches = [
+    'Мы делаем приложение для пожилых людей, которые не умеют пользоваться госуслугами. Внуки настраивают, а бабушка нажимает одну большую кнопку и попадает к волонтёру по видеосвязи. Пока тестируем на родственниках.',
+    '- Проблема: малый бизнес теряет заявки из Instagram\n- Решение: бот собирает заявки в одну таблицу\n- Сделано: 4 клиента, 12 000 ₽ выручки за октябрь\n- Деньги: 3 000 ₽ в месяц',
+    'StudyMate is an AI tutor for first-year students. We have 200 beta users and 15 paying 300 RUB per month. Competitors are general chatbots.',
+  ];
+  for (const [i, pitch] of pitches.entries()) {
+    const { start, done } = await playRound(call, `web:new-${i}`, {}, pitch);
+    assert.equal(start.totalSteps, 5);
+    assertResultShape(done.result, [pitch, ...[1, 2, 3, 4, 5].map((s) => `Ответ ${s}: 12 интервью, 3 оплаты по 1 500 ₽.`)].join('\n'));
+  }
+}));
