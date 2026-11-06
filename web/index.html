@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Злой инвестор — ИИ-тренажёр питчей</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <a href="#workspace" class="skip-link">Перейти к тренажёру</a>
+
+  <header class="hero">
+    <div class="container hero__grid">
+      <div class="hero__content">
+        <div class="hero__status-bar">
+          <span id="api-badge" class="status-badge" role="status" aria-live="polite">Проверка связи с ИИ…</span>
+          <span class="mode-tag">VIBECODE NIGHTS · Тренажёр защиты</span>
+        </div>
+
+        <h1 class="hero__title">ЗЛОЙ ИНВЕСТОР</h1>
+        <p class="hero__subtitle">ИИ-тренажёр, после которого вопросы жюри не застанут врасплох</p>
+
+        <ol class="hero__steps" aria-label="Этапы прохождения тренажёра">
+          <li class="hero__step"><span>1</span> Питч</li>
+          <li class="hero__step"><span>2</span> 5 вопросов</li>
+          <li class="hero__step"><span>3</span> 10 критериев</li>
+          <li class="hero__step"><span>4</span> 3 совета</li>
+        </ol>
+
+        <div class="hero__actions">
+          <a href="#workspace" id="start-main-btn" class="btn btn--primary">Начать прожарку</a>
+          <button type="button" id="start-demo-hero-btn" class="btn btn--ghost-light">Посмотреть демо</button>
+        </div>
+      </div>
+
+      <div class="hero__visual" aria-hidden="true">
+        <div class="phone-mockup">
+          <div class="phone-mockup__notch"></div>
+          <div class="phone-mockup__header">
+            <div class="phone-mockup__avatar">ЗИ</div>
+            <div>
+              <div class="phone-mockup__name">Злой Инвестор</div>
+              <div class="phone-mockup__meta">Пример разговора</div>
+            </div>
+          </div>
+          <div class="phone-mockup__chat">
+            <div class="chat-bubble chat-bubble--user">
+              Мы помогаем студентам находить тихие места для учёбы рядом с университетом.
+            </div>
+            <div class="chat-bubble chat-bubble--investor">
+              Кто ваш клиент? Опишите одного человека. Как он решает эту проблему сейчас?
+            </div>
+            <div class="chat-bubble chat-bubble--user">
+              Пока опросили друзей. Данных о готовности платить ещё нет.
+            </div>
+            <div class="chat-bubble chat-bubble--investor">
+              Друзья — ещё не клиенты. Как проверите спрос до того, как начнёте писать код?
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main id="workspace" class="workspace" tabindex="-1">
+    <div class="container">
+      <nav class="stepper" aria-label="Прогресс сессии">
+        <ol class="stepper__list">
+          <li class="stepper__item stepper__item--active" data-step-nav="1" aria-current="step">
+            <span class="stepper__num">01</span>
+            <span class="stepper__label">Питч проекта</span>
+          </li>
+          <li class="stepper__item" data-step-nav="2">
+            <span class="stepper__num">02</span>
+            <span class="stepper__label">5 вопросов</span>
+          </li>
+          <li class="stepper__item" data-step-nav="3">
+            <span class="stepper__num">03</span>
+            <span class="stepper__label">10 критериев</span>
+          </li>
+          <li class="stepper__item" data-step-nav="4">
+            <span class="stepper__num">04</span>
+            <span class="stepper__label">3 совета</span>
+          </li>
+        </ol>
+      </nav>
+
+      <!-- Баннер деморежима -->
+      <div id="demo-banner" class="banner banner--demo" role="region" aria-label="Уведомление о деморежиме" hidden>
+        <div class="banner__body">
+          <strong class="banner__title">Демопример: ответы не оцениваются ИИ</strong>
+          <p class="banner__desc">Вы проходите ознакомительный сценарий проекта StudySpot. Чтобы получить реальный разбор своего питча через Gemini Argon, переключитесь в основной режим.</p>
+        </div>
+        <button type="button" id="exit-demo-btn" class="btn btn--secondary btn--sm">Выйти из демо</button>
+      </div>
+
+      <!-- Баннер ошибок API и валидации -->
+      <div id="error-banner" class="banner banner--error" role="alert" aria-live="assertive" hidden>
+        <div class="banner__body">
+          <strong id="error-title" class="banner__title">Ошибка запроса</strong>
+          <p id="error-message" class="banner__desc"></p>
+        </div>
+        <div class="banner__actions">
+          <button type="button" id="retry-action-btn" class="btn btn--primary btn--sm" hidden>Повторить отправку</button>
+          <button type="button" id="dismiss-error-btn" class="btn btn--secondary btn--sm">Понятно</button>
+        </div>
+      </div>
+
+      <!-- ЭТАП 1: ВВОД ПИТЧА -->
+      <section id="view-pitch" class="card stage-panel" aria-labelledby="pitch-heading">
+        <div class="stage-panel__header">
+          <div>
+            <span class="eyebrow">Этап 1 из 4</span>
+            <h2 id="pitch-heading" class="stage-panel__title">Опишите ваш проект</h2>
+          </div>
+          <div class="stage-panel__header-btns">
+            <button type="button" id="fill-example-btn" class="btn btn--secondary btn--sm">Подставить пример</button>
+            <button type="button" id="start-demo-panel-btn" class="btn btn--outline-orange btn--sm">Посмотреть демо</button>
+          </div>
+        </div>
+
+        <p class="stage-panel__lead">
+          Сформулируйте суть продукта, проблему клиентов, бизнес-модель, текущие метрики или стадию разработки. Злой инвестор найдёт слабые места и задаст 5 прицельных вопросов.
+        </p>
+
+        <form id="pitch-form" novalidate>
+          <p class="privacy-note">В режиме ИИ ваш питч и ответы отправляются Gemini для разбора. Не добавляйте пароли и конфиденциальные данные.</p>
+          <div class="field">
+            <label for="pitch-input" class="field__label">Текст питча (от 20 до 4000 символов)</label>
+            <textarea
+              id="pitch-input"
+              class="field__textarea"
+              rows="8"
+              minlength="20"
+              maxlength="4000"
+              required
+              placeholder="Например: Мы создаём B2B SaaS для автоматизации инвентаризации на небольших складах через камеру смартфона..."
+              aria-describedby="pitch-hint pitch-counter"
+            ></textarea>
+            <div class="field__footer">
+              <span id="pitch-hint" class="field__hint">Черновик автоматически сохраняется в вкладке браузера (Ctrl + Enter для отправки).</span>
+              <span id="pitch-counter" class="field__counter" aria-live="polite">0 / 4000</span>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" id="submit-pitch-btn" class="btn btn--primary btn--lg">
+              Отправить питч и получить 1-й вопрос
+            </button>
+          </div>
+        </form>
+
+        <aside class="criteria-preview" aria-labelledby="criteria-preview-heading">
+          <h3 id="criteria-preview-heading" class="criteria-preview__title">По каким 10 критериям вас оценит инвестор:</h3>
+          <ol id="criteria-preview-list" class="criteria-preview__list"></ol>
+        </aside>
+      </section>
+
+      <!-- ЭТАП 2: 5 ВОПРОСОВ И ЧАТ -->
+      <section id="view-qa" class="card stage-panel" aria-labelledby="qa-heading" hidden>
+        <div class="stage-panel__header">
+          <div>
+            <span id="qa-step-badge" class="eyebrow" aria-live="polite">Вопрос 1 из 5</span>
+            <h2 id="qa-heading" class="stage-panel__title">Допрос инвестора</h2>
+          </div>
+          <button type="button" id="abort-session-btn" class="btn btn--secondary btn--sm">Начать заново</button>
+        </div>
+
+        <div class="qa-progress" aria-hidden="true">
+          <div id="qa-progress-bar" class="qa-progress__fill"></div>
+        </div>
+
+        <div id="chat-log" class="chat-history" role="log" aria-live="polite" aria-label="История диалога с инвестором"></div>
+
+        <article id="active-question-card" class="question-box" aria-labelledby="current-question-title">
+          <div class="question-box__badge-row">
+            <span class="question-box__speaker">Злой инвестор спрашивает:</span>
+            <span id="current-question-counter" class="question-box__step">1 / 5</span>
+          </div>
+          <h3 id="current-question-title" class="question-box__title" tabindex="-1"></h3>
+          <p id="current-question-text" class="question-box__text"></p>
+          <div id="current-question-hint-wrap" class="question-box__hint">
+            <strong class="question-box__hint-label">На что смотрит жюри:</strong>
+            <span id="current-question-hint"></span>
+          </div>
+        </article>
+
+        <form id="answer-form" novalidate>
+          <div class="field">
+            <label for="answer-input" class="field__label">Ваш ответ (до 2000 символов)</label>
+            <textarea
+              id="answer-input"
+              class="field__textarea"
+              rows="5"
+              minlength="1"
+              maxlength="2000"
+              required
+              placeholder="Отвечайте конкретно: цифры, гипотезы, стоимость привлечения, результаты тестов..."
+              aria-describedby="answer-hint answer-counter"
+            ></textarea>
+            <div class="field__footer">
+              <span id="answer-hint" class="field__hint">Избегайте воды — инвестор ценит честные расчёты (Ctrl + Enter для отправки).</span>
+              <span id="answer-counter" class="field__counter" aria-live="polite">0 / 2000</span>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" id="submit-answer-btn" class="btn btn--primary btn--lg">
+              Ответить инвестору
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ЭТАПЫ 3 И 4: 10 КРИТЕРИЕВ И 3 СОВЕТА -->
+      <section id="view-result" class="stage-panel-group" aria-labelledby="result-heading" hidden>
+        <div id="demo-result-stamp" class="banner banner--stamp" role="status" hidden>
+          <strong>Образец разбора StudySpot, не оценка вашего проекта</strong>
+        </div>
+
+        <div class="card result-hero">
+          <div class="result-hero__main">
+            <span class="eyebrow">Этапы 3 и 4 • Финальный вердикт</span>
+            <h2 id="result-heading" class="stage-panel__title" tabindex="-1">Разбор вашего питча</h2>
+            <p id="result-summary" class="result-hero__summary"></p>
+          </div>
+          <div class="score-ring" aria-label="Итоговый балл">
+            <span class="score-ring__label">Итоговая оценка</span>
+            <div class="score-ring__numbers">
+              <span id="result-score" class="score-ring__value">0</span>
+              <span class="score-ring__sep">/</span>
+              <span id="result-max-score" class="score-ring__max">100</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="result-tabs-bar">
+          <a href="#criteria-section" class="btn btn--secondary btn--sm">К 10 критериям</a>
+          <a href="#tips-section" class="btn btn--secondary btn--sm">К 3 советам</a>
+          <button type="button" id="new-round-top-btn" class="btn btn--primary btn--sm">Новый раунд</button>
+        </div>
+
+        <!-- 10 критериев -->
+        <section id="criteria-section" class="card result-block" aria-labelledby="criteria-heading">
+          <div class="result-block__header">
+            <span class="eyebrow">Этап 3 из 4</span>
+            <h3 id="criteria-heading" class="result-block__title">Объяснимая оценка по 10 критериям</h3>
+            <p class="field__hint">Шкала прототипа: 0 — данных нет, 1–3 — гипотезы, 4–6 — отдельные подтверждения, 7–8 — убедительные данные, 9–10 — сильные доказательства. Все критерии имеют одинаковый вес.</p>
+          </div>
+          <div id="criteria-grid" class="criteria-grid"></div>
+        </section>
+
+        <!-- 3 совета -->
+        <section id="tips-section" class="card result-block" aria-labelledby="tips-heading">
+          <div class="result-block__header">
+            <span class="eyebrow">Этап 4 из 4</span>
+            <h3 id="tips-heading" class="result-block__title">3 приоритетных совета перед защитой</h3>
+          </div>
+          <ol id="tips-list" class="tips-list"></ol>
+        </section>
+
+        <!-- Архив ответов раунда -->
+        <details class="card transcript-details">
+          <summary class="transcript-details__summary">Посмотреть ваш исходный питч и историю ответов</summary>
+          <div id="result-transcript" class="chat-history chat-history--compact"></div>
+        </details>
+
+        <div class="result-footer-actions">
+          <button type="button" id="new-round-bottom-btn" class="btn btn--primary btn--lg">Начать новый раунд</button>
+          <button type="button" id="try-real-from-demo-btn" class="btn btn--outline-orange btn--lg" hidden>Проверить свой питч с ИИ</button>
+        </div>
+      </section>
+
+      <!-- Живая область для скринридеров -->
+      <div id="sr-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer__inner">
+      <div class="footer__brand">
+        <strong>ЗЛОЙ ИНВЕСТОР</strong>
+        <span>ИИ-тренажёр питчей и подготовки к Q&A сессиям</span>
+      </div>
+      <div class="footer__meta">
+        <span>Gemini Argon · Кейс «Злой инвестор»</span>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
