@@ -53,6 +53,8 @@ function httpError(status) {
 
 // Модели с рассуждениями (gpt-5*, o*) тратят часть лимита на рассуждения и не принимают temperature.
 export const isReasoningModel = (model) => /^(gpt-5|o\d)/i.test(model);
+// Классические модели без рассуждений; для остальных (в т. ч. новых gpt-6*) даём запас токенов.
+const isClassicModel = (model) => /^(gpt-4|gpt-3)/i.test(model);
 
 function mediaPart(m) {
   if (m.mimeType === 'application/pdf') {
@@ -128,8 +130,8 @@ export function createOpenAIClient({
       model,
       messages,
       n: 1,
-      // У моделей с рассуждениями лимит включает рассуждения — даём запас.
-      max_completion_tokens: reasoning ? Math.max(maxOutputTokens * 4, 8192) : maxOutputTokens,
+      // У моделей с рассуждениями лимит включает рассуждения — даём запас (и новым моделям на всякий случай).
+      max_completion_tokens: isClassicModel(model) ? maxOutputTokens : Math.max(maxOutputTokens * 4, 8192),
     };
     if (reasoning) body.reasoning_effort = 'low';
     if (jsonMode) body.response_format = { type: 'json_schema', json_schema: { name: 'response', schema, strict: false } };

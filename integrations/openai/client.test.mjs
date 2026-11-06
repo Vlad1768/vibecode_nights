@@ -32,6 +32,10 @@ test('модели с рассуждениями получают запас т�
   assert.equal(body.reasoning_effort, 'low');
   assert.equal(body.max_completion_tokens, 8192);
   assert.ok(isReasoningModel('o4-mini') && !isReasoningModel('gpt-4.1-mini'));
+  const c6 = createOpenAIClient({ apiKey: KEY, model: 'gpt-6.1-sol', fetchImpl: async (_u, i) => { body = JSON.parse(i.body); return ok('текст'); } });
+  await c6.generateText({ prompt: 'x' });
+  assert.equal(body.reasoning_effort, undefined, 'неизвестным моделям reasoning_effort не шлём');
+  assert.equal(body.max_completion_tokens, 8192, 'но запас токенов даём');
 });
 
 test('PDF и картинка уходят частями сообщения, аудио — только через transcribe', async () => {

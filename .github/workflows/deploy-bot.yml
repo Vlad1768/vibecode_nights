@@ -106,7 +106,7 @@ jobs:
           wanted = sys.argv[1]
           if wanted:
               print(wanted if wanted in ids else ''); raise SystemExit
-          for m in ['gpt-4.1-mini', 'gpt-4o-mini', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o', 'gpt-5']:
+          for m in ['gpt-6.1-sol', 'gpt-4.1-mini', 'gpt-4o-mini', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o', 'gpt-5']:
               if m in ids: print(m); break
           PY
           )
@@ -114,6 +114,20 @@ jobs:
           [ -n "$chosen" ] || { echo "::error::Нет подходящей модели OpenAI (Variable OPENAI_MODEL или список по умолчанию)"; exit 1; }
           echo "Модель OpenAI: $chosen"
           echo "OPENAI_MODEL=$chosen" >> "$GITHUB_ENV"
+
+      - name: Проверка модели реальным вызовом
+        if: env.OPENAI_API_KEY != '' && inputs.mode == 'deploy'
+        run: |
+          # Один короткий запрос JSON — как его делает ядро. Ключ и тексты в журнал не попадают.
+          node --input-type=module -e "
+            import { createOpenAIClientFromEnv } from './integrations/openai/client.mjs';
+            const c = createOpenAIClientFromEnv(process.env, { timeoutMs: 60000, maxOutputTokens: 256 });
+            const t = Date.now();
+            try {
+              const r = await c.generateJSON({ prompt: 'Верни JSON {\"ok\": true}', schema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] } });
+              console.log('Модель ' + r.modelVersion + ' ответила за ' + (Date.now() - t) + ' мс, ok=' + r.data.ok + ', токенов ' + r.usage.totalTokens);
+            } catch (e) { console.log('::error::Модель не ответила: ' + e.code + ' — ' + e.message); process.exit(1); }
+          "
 
       - name: SSH-клиент и ключ хоста
         run: |
