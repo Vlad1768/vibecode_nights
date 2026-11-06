@@ -117,7 +117,7 @@ test('writes enforce same origin, JSON and bounds, and forward contract validati
   assert.equal((await f.request(path, { method: 'POST', body: { step: 1, answer: 'x'.repeat(2001) }, cookie: first.cookie })).status, 422);
 });
 
-test('private files are not served; new stylesheet and motion modules have correct MIME', async (t) => {
+test('private files are not served; public assets have correct MIME', async (t) => {
   const f = await fixture(t);
   for (const path of ['/gateway.mjs', '/server.mjs', '/.env', '/.git/config', '/server/.data/sessions.json', '/api/../gateway.mjs']) {
     assert.equal((await fetch(f.base + path)).status, 404, path);
@@ -132,6 +132,8 @@ test('private files are not served; new stylesheet and motion modules have corre
     ['/assets/investors/burgundy-investor.jpg', 'image/jpeg'],
     ['/assets/investors/corporate-investor.jpg', 'image/jpeg'],
     ['/assets/investors/green-coat-investor.jpg', 'image/jpeg'],
+    ['/entrance.css', 'text/css'], ['/entrance.mjs', 'text/javascript'],
+    ['/assets/investor-fight.jpg', 'image/jpeg'],
   ]) {
     const response = await fetch(f.base + path);
     assert.equal(response.status, 200, path);
@@ -139,6 +141,7 @@ test('private files are not served; new stylesheet and motion modules have corre
     assert.ok((await response.arrayBuffer()).byteLength > 0, path);
   }
   assert.equal((await fetch(f.base + '/assets/investors/../../gateway.mjs')).status, 404);
+  assert.equal((await fetch(f.base + '/assets/../gateway.mjs')).status, 404);
 });
 
 test('upstream outages and diagnostics become a safe retry error without fake results', async (t) => {

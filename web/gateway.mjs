@@ -23,6 +23,9 @@ const STATIC = new Map([
   ['/assets/investors/burgundy-investor.jpg', ['assets/investors/burgundy-investor.jpg', 'image/jpeg']],
   ['/assets/investors/corporate-investor.jpg', ['assets/investors/corporate-investor.jpg', 'image/jpeg']],
   ['/assets/investors/green-coat-investor.jpg', ['assets/investors/green-coat-investor.jpg', 'image/jpeg']],
+  ['/entrance.css', ['entrance.css', 'text/css; charset=utf-8']],
+  ['/entrance.mjs', ['entrance.mjs', 'text/javascript; charset=utf-8']],
+  ['/assets/investor-fight.jpg', ['assets/investor-fight.jpg', 'image/jpeg']],
 ]);
 const ERRORS = new Set(['BAD_REQUEST', 'EMPTY_PITCH', 'NOT_A_PITCH', 'PITCH_TOO_LONG', 'EMPTY_ANSWER', 'ANSWER_TOO_LONG', 'SESSION_NOT_FOUND', 'SESSION_DONE', 'STEP_MISMATCH', 'RATE_LIMITED', 'AI_UNAVAILABLE']);
 class HttpError extends Error {

@@ -7,6 +7,7 @@ release_dir="/opt/fightinvestor/releases/$release"
 public_dir=/var/www/fightinvestor
 public_files=(
   index.html styles.css app.mjs demo.mjs motion.css motion.mjs
+  entrance.css entrance.mjs assets/investor-fight.jpg
   investor-art.css investor-art.mjs
   assets/investors/burgundy-investor.jpg
   assets/investors/corporate-investor.jpg
