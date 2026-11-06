@@ -1,0 +1,49 @@
+name: connect-trainer
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'probe reads both servers; connect deploys the shared API and connects the existing bot and website'
+        type: choice
+        options: [probe, connect]
+        default: probe
+
+concurrency:
+  # Share the existing bot deployment lock: both workflows update bot.env/restart its service.
+  group: deploy-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  connect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MODE: ${{ inputs.mode }}
+      SITE_HOST: ${{ vars.SITE_SERVER_HOST }}
+      SITE_USER: ${{ vars.SITE_SERVER_USER }}
+      SITE_PORT: ${{ vars.SITE_SERVER_PORT || '22' }}
+      SITE_PASSWORD: ${{ secrets.SITE_SERVER_PASSWORD }}
+      BOT_HOST: ${{ vars.BOT_SERVER_HOST }}
+      BOT_USER: ${{ vars.BOT_SERVER_USER }}
+      BOT_PORT: ${{ vars.BOT_SERVER_PORT || '22' }}
+      BOT_PASSWORD: ${{ secrets.BOT_SERVER_PASSWORD }}
+      RELEASE_ID: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate application before connecting
+        if: inputs.mode == 'connect'
+        run: |
+          node --check web/gateway.mjs
+          node --test core/*.test.mjs server/*.test.mjs web/gateway.test.mjs
+      - name: Install SSH client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null
+      - name: Probe or connect the two servers
+        shell: bash
+        run: bash deploy/web/connect-trainer.sh
