@@ -1,0 +1,178 @@
+/* Progressive motion: all content remains readable when this module is absent. */
+.motion-strip {
+  position: relative;
+  isolation: isolate;
+  height: clamp(180px, 17vw, 240px);
+  overflow: hidden;
+  background-color: #fffefa;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 6px, #fffefa 6px 8px),
+    repeating-linear-gradient(90deg, transparent 0 6px, #fffefa 6px 8px),
+    linear-gradient(125deg, #fffefa 10%, #ffad74 38%, #ff5c00 62%, #171614 88%);
+  border-block: 1px solid #d8d5ce;
+  contain: layout paint;
+}
+
+#pixel-wave {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+.motion-strip__bar {
+  position: absolute;
+  inset: auto 0 20px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  pointer-events: none;
+}
+
+.motion-strip__label {
+  margin: 0;
+  padding: 10px 14px;
+  color: #fff0e5;
+  background: #150d09ed;
+  border: 1px solid #875031;
+  font: 700 0.71rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.motion-toggle {
+  flex: 0 0 auto;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 9px 13px;
+  border: 1px solid #875031;
+  border-radius: 0;
+  background: #150d09ed;
+  color: #fff0e5;
+  font: 600 0.75rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.motion-toggle::before {
+  content: "";
+  width: 8px;
+  height: 10px;
+  border-left: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+}
+
+.motion-toggle[aria-pressed="false"]::before {
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid currentColor;
+  border-right: 0;
+}
+
+.motion-toggle:hover:not(:disabled) {
+  background-color: #322015;
+  border-color: #ffc396;
+}
+
+.motion-toggle:focus-visible {
+  outline: 3px solid #fff0e5;
+  outline-offset: 3px;
+}
+
+.motion-toggle:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.motion-toggle:disabled::before {
+  width: 7px;
+  height: 7px;
+  border: 0;
+  background: currentColor;
+}
+
+/* Animation classes are added only when their element enters the viewport.
+   They never set a persistent hidden state or change document flow. */
+.motion-enter {
+  animation: investor-arrive 650ms cubic-bezier(0.2, 0.65, 0.2, 1) both;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+.hero__title.motion-enter {
+  animation-name: investor-title-arrive;
+  animation-duration: 850ms;
+}
+
+.hero__steps.motion-enter {
+  animation-duration: 650ms;
+}
+
+.motion-chat-enter {
+  animation: investor-chat-arrive 650ms cubic-bezier(0.22, 0.7, 0.2, 1) both;
+  animation-delay: var(--motion-delay, 0ms);
+}
+
+.motion-phone {
+  transform: perspective(1000px) rotateX(var(--motion-tilt-x, 0deg)) rotateY(var(--motion-tilt-y, 0deg));
+  transition: transform 400ms cubic-bezier(0.2, 0.65, 0.2, 1);
+}
+
+.motion-phone:focus-within {
+  transform: none;
+}
+
+@keyframes investor-arrive {
+  from { opacity: 0.88; translate: 0 12px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+@keyframes investor-title-arrive {
+  from { opacity: 0.8; translate: -12px 16px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+@keyframes investor-chat-arrive {
+  from { opacity: 0.65; translate: 0 10px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+.motion-paused .motion-enter,
+.motion-paused .motion-chat-enter,
+.motion-reduced .motion-enter,
+.motion-reduced .motion-chat-enter {
+  animation: none !important;
+  opacity: 1;
+  translate: none;
+}
+
+.motion-paused .motion-phone,
+.motion-reduced .motion-phone {
+  transform: none;
+  transition: none;
+}
+
+@media (max-width: 580px) {
+  .motion-strip { height: 148px; }
+  .motion-strip__bar { bottom: 12px; gap: 8px; }
+  .motion-strip__label { max-width: 210px; padding: 8px 10px; font-size: 0.6rem; letter-spacing: 0.055em; }
+  .motion-toggle { min-height: 44px; padding: 9px 10px; font-size: 0.67rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .motion-enter,
+  .motion-chat-enter { animation: none !important; opacity: 1; translate: none; }
+  .motion-phone { transform: none !important; transition: none !important; }
+  .motion-toggle { transition: none; }
+}

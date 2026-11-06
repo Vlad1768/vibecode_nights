@@ -5,10 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Злой инвестор — ИИ-тренажёр питчей</title>
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./motion.css">
   <script type="module" src="./app.mjs"></script>
+  <script type="module" src="./motion.mjs"></script>
 </head>
 <body>
   <a href="#workspace" class="skip-link">Перейти к тренажёру</a>
+
+  <nav class="site-nav" aria-label="Главная навигация">
+    <div class="container">
+      <a class="site-nav__brand" href="#workspace">INVESTFY<span> / Злой инвестор</span></a>
+      <div class="site-nav__links"><a href="https://t.me/fightinvestor_bot" target="_blank" rel="noopener noreferrer">Telegram ↗</a></div>
+    </div>
+  </nav>
 
   <header class="hero">
     <div class="container hero__grid">
@@ -18,7 +27,7 @@
           <span class="mode-tag">VIBECODE NIGHTS · Тренажёр защиты</span>
         </div>
 
-        <h1 class="hero__title">ЗЛОЙ ИНВЕСТОР</h1>
+        <h1 class="hero__title"><span class="hero__title-line">ЗЛОЙ</span><span class="hero__title-line">ИНВЕСТОР</span></h1>
         <p class="hero__subtitle">ИИ-тренажёр, после которого вопросы жюри не застанут врасплох</p>
 
         <ol class="hero__steps" aria-label="Этапы прохождения тренажёра">
@@ -31,6 +40,7 @@
         <div class="hero__actions">
           <a href="#workspace" id="start-main-btn" class="btn btn--primary">Начать прожарку</a>
           <button type="button" id="start-demo-hero-btn" class="btn btn--ghost-light">Посмотреть демо</button>
+          <a href="https://t.me/fightinvestor_bot" class="btn btn--ghost-light" target="_blank" rel="noopener noreferrer">Открыть Telegram-бота</a>
         </div>
       </div>
 
@@ -62,6 +72,14 @@
       </div>
     </div>
   </header>
+
+  <div class="motion-strip">
+    <canvas id="pixel-wave" aria-hidden="true"></canvas>
+    <div class="container motion-strip__bar">
+      <small class="motion-strip__label">Проверьте идею на прочность</small>
+      <button id="motion-toggle" class="motion-toggle" type="button" aria-pressed="false" aria-label="Анимация оформления">Остановить анимацию</button>
+    </div>
+  </div>
 
   <main id="workspace" class="workspace" tabindex="-1">
     <div class="container">
@@ -95,6 +113,13 @@
         <button type="button" id="exit-demo-btn" class="btn btn--secondary btn--sm">Выйти из демо</button>
       </div>
 
+      <div id="api-demo-banner" class="banner banner--demo api-demo-notice" role="status" hidden>
+        <div class="banner__body">
+          <strong class="banner__title">Учебный API — без оценки моделью</strong>
+          <p class="banner__desc">Общий сервер сайта и Telegram-бота использует учебный движок. Вопросы и баллы в этом раунде не являются результатом работы Gemini.</p>
+        </div>
+      </div>
+
       <!-- Баннер ошибок API и валидации -->
       <div id="error-banner" class="banner banner--error" role="alert" aria-live="assertive" hidden>
         <div class="banner__body">
@@ -123,6 +148,14 @@
         <p class="stage-panel__lead">
           Сформулируйте суть продукта, проблему клиентов, бизнес-модель, текущие метрики или стадию разработки. Злой инвестор найдёт слабые места и задаст 5 прицельных вопросов.
         </p>
+
+        <aside id="persona-panel" class="criteria-preview" aria-labelledby="persona-name" hidden>
+          <h3 id="persona-name" class="criteria-preview__title"></h3>
+          <p id="persona-intro"></p>
+          <p id="persona-scoring" class="field__hint"></p>
+        </aside>
+
+        <p id="round-intro" class="field__hint" hidden></p>
 
         <form id="pitch-form" novalidate>
           <p class="privacy-note">В режиме ИИ ваш питч и ответы отправляются Gemini для разбора. Не добавляйте пароли и конфиденциальные данные.</p>
@@ -172,6 +205,16 @@
         </div>
 
         <div id="chat-log" class="chat-history" role="log" aria-live="polite" aria-label="История диалога с инвестором"></div>
+
+        <aside id="facts-panel" class="criteria-preview" aria-labelledby="facts-heading" hidden>
+          <h3 id="facts-heading" class="criteria-preview__title">Что инвестор понял из питча</h3>
+          <strong>Известно из вашего текста</strong>
+          <ul id="facts-known"></ul>
+          <strong>Чего пока не хватает</strong>
+          <ul id="facts-missing"></ul>
+        </aside>
+        <p id="api-notice" class="banner banner--demo" role="status" hidden></p>
+        <p id="api-reaction" class="field__hint" hidden></p>
 
         <article id="active-question-card" class="question-box" aria-labelledby="current-question-title">
           <div class="question-box__badge-row">
@@ -224,6 +267,7 @@
             <span class="eyebrow">Этапы 3 и 4 • Финальный вердикт</span>
             <h2 id="result-heading" class="stage-panel__title" tabindex="-1">Разбор вашего питча</h2>
             <p id="result-summary" class="result-hero__summary"></p>
+            <p id="round-comparison" class="field__hint" hidden></p>
           </div>
           <div class="score-ring" aria-label="Итоговый балл">
             <span class="score-ring__label">Итоговая оценка</span>
@@ -246,7 +290,7 @@
           <div class="result-block__header">
             <span class="eyebrow">Этап 3 из 4</span>
             <h3 id="criteria-heading" class="result-block__title">Объяснимая оценка по 10 критериям</h3>
-            <p class="field__hint">Шкала прототипа: 0 — данных нет, 1–3 — гипотезы, 4–6 — отдельные подтверждения, 7–8 — убедительные данные, 9–10 — сильные доказательства. Все критерии имеют одинаковый вес.</p>
+            <p id="scoring-description" class="field__hint score-legend">Каждый критерий получает уровень 0–3. Баллы считает общий сервер: вес × уровень / 3; сумма весов — 100. Цитата под критерием показывает основание оценки.</p>
           </div>
           <div id="criteria-grid" class="criteria-grid"></div>
         </section>
@@ -268,6 +312,7 @@
 
         <div class="result-footer-actions">
           <button type="button" id="new-round-bottom-btn" class="btn btn--primary btn--lg">Начать новый раунд</button>
+          <button type="button" id="second-round-btn" class="btn btn--outline-orange btn--lg" hidden>Улучшить питч · второй раунд</button>
           <button type="button" id="try-real-from-demo-btn" class="btn btn--outline-orange btn--lg" hidden>Проверить свой питч с ИИ</button>
         </div>
       </section>
@@ -285,6 +330,7 @@
       </div>
       <div class="footer__meta">
         <span>Gemini Argon · Кейс «Злой инвестор»</span>
+        <a href="https://t.me/fightinvestor_bot" target="_blank" rel="noopener noreferrer">Тот же тренажёр в Telegram</a>
       </div>
     </div>
   </footer>
