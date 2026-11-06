@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions/ba326695-f80c-4793-9283-cf5acbf47f58?userId=tg:999"
+  },
+  "response": {
+    "error": {
+      "code": "SESSION_NOT_FOUND",
+      "message": "Сессия не найдена. Начните новый раунд."
+    }
+  }
+}
