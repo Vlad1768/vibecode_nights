@@ -12,6 +12,7 @@ import { createHttpApi } from './api/http.mjs';
 import { createMediaReader } from './media.mjs';
 import { inputFromMessage } from './input.mjs';
 import { createStore } from './store.mjs';
+import { createCoach } from './coach.mjs';
 import { buttonsAfterPress } from './buttons.mjs';
 import { createLlmClientFromEnv, llmProvider } from '../../integrations/llm.mjs';
 
@@ -73,7 +74,9 @@ async function main() {
   const media = createMediaReader({ gemini: llm, download: (fileId, max) => tg.downloadFile(fileId, max) });
   // BOT_DATA_DIR — куда сохранять прошлые раунды и напоминания (на сервере /var/lib/investor-bot).
   const store = createStore({ dir: process.env.BOT_DATA_DIR || null });
-  const dialog = createDialog({ api, media, store });
+  // Тренер (оценка питча и ответов по ТЗ) работает на той же модели — без ключа бот честно скажет, что недоступен.
+  const coach = llm ? createCoach({ llm }) : null;
+  const dialog = createDialog({ api, coach, media, store });
 
   const welcomeSource = welcomePhotoSource(process.env);
   const photoIds = new Map(); // путь к файлу → file_id Telegram после первой загрузки
@@ -140,7 +143,7 @@ async function main() {
       tg.sendTyping(chatId);
       let replies;
       try {
-        replies = await dialog.handle({ chatId, userId, ...input });
+        replies = await dialog.handle({ chatId, userId, name: from?.first_name, ...input });
       } finally {
         clearInterval(typing);
       }
@@ -150,16 +153,6 @@ async function main() {
       log('error', 'message.failed', { chat: chatId, error: err?.message ?? String(err) });
     }
   }
-
-  // Напоминания о втором раунде: проверка раз в минуту.
-  const reminderTimer = setInterval(async () => {
-    for (const r of store.takeDue()) {
-      const reply = dialog.reminderReply();
-      await tg.sendMessage(r.chatId, reply.text, { buttons: reply.buttons }).catch((err) => log('warn', 'reminder.failed', { error: err?.message }));
-      log('info', 'reminder.sent', { chat: r.chatId });
-    }
-  }, 60_000);
-  reminderTimer.unref();
 
   log('info', 'bot.started', { api: api.mode, recognition: llm ? llmProvider(process.env) : false, welcomePhoto: !!welcomeSource });
   tg.setCommands(COMMANDS).catch((err) => log('warn', 'telegram.set_commands_failed', { error: err?.message }));
@@ -201,7 +194,6 @@ async function main() {
 
   // Даём текущим ответам до 10 секунд завершиться.
   await Promise.race([Promise.allSettled([...inFlight]), sleep(10_000)]);
-  clearInterval(reminderTimer);
   store.flush();
   healthServer?.close();
   log('info', 'bot.stopped');

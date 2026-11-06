@@ -129,6 +129,23 @@ jobs:
             } catch (e) { console.log('::error::Модель не ответила: ' + e.code + ' — ' + e.message); process.exit(1); }
           "
 
+      - name: Проверка тренера на настоящей модели (только баллы)
+        if: env.OPENAI_API_KEY != '' && inputs.mode == 'deploy'
+        run: |
+          node --input-type=module -e "
+            import { createOpenAIClientFromEnv } from './integrations/openai/client.mjs';
+            import { createCoach } from './bot/src/coach.mjs';
+            const coach = createCoach({ llm: createOpenAIClientFromEnv(process.env, { timeoutMs: 90000, maxOutputTokens: 2048 }) });
+            const pitch = 'ЛабСклад — сервис, через который вузовские лаборатории сдают друг другу в аренду простаивающее оборудование. Дорогие приборы загружены на 30%. 23 интервью с заведующими лабораториями в 6 вузах, 17 из 23 готовы сдавать. Пилот в двух лабораториях: 9 бронирований за 6 недель. 12% комиссии с аренды, средний чек 18 000 рублей.';
+            try {
+              const p = await coach.evaluatePitch(pitch);
+              console.log('Питч: ' + p.total + '/100, уровень ' + p.level + ', kind=' + p.kind + ', баллы ' + p.scores.join(','));
+              const a = await coach.evaluateAnswer({ pitch, question: 'Кто внутри вуза подписывает договор аренды?', answer: 'Не знаю, потом разберёмся' });
+              console.log('Ответ-отписка: ' + a.total + '/20, evasive=' + a.evasive);
+              if (p.kind !== 'pitch' || p.total < 20 || !a.evasive) { console.log('::warning::Тренер ответил неожиданно — проверьте промпты'); }
+            } catch (e) { console.log('::error::Тренер не ответил: ' + (e.code || '') + ' ' + e.message); process.exit(1); }
+          "
+
       - name: SSH-клиент и ключ хоста
         run: |
           sudo apt-get install -y -qq sshpass >/dev/null

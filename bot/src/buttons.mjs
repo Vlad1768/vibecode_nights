@@ -2,7 +2,7 @@
 // Возвращает новый reply_markup, null — убрать все кнопки, undefined — ничего не менять.
 
 // Кнопки, после которых сообщение остаётся «живым» (можно нажать ещё что-то под ним).
-const KEEP = new Set(['pause', 'advice', 'criteria', 'how', 'template']);
+const KEEP = new Set(['profile', 'advice', 'criteria', 'how', 'learn', 'template', 'pause']);
 
 export function buttonsAfterPress(markup, data) {
   const rows = markup?.inline_keyboard;

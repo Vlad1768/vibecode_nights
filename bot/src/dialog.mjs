@@ -1,415 +1,496 @@
-// Диалог тренажёра в Telegram по docs/CONTRACT.md 1.0 и docs/BOT_SCENARIO.md §2, §10.
-// Чистая логика без сети Telegram: на вход — сообщение или нажатие кнопки, на выход — список ответов.
-// Ответ: строка или { text, buttons?, html?, photo?, action? }.
-// Состояние — отдельно для каждой пары (чат, пользователь): сессии разных людей не смешиваются.
+// Диалог бота-тренера по питчам (ТЗ «доработка бота-тренера»).
+// Флоу: питч → оценка (до 3 правок с разбором изменений) → 5 вопросов из общего API (по одному,
+// «Уточнить»/«Изменить вопрос», оценка каждого ответа) → итог (питч 50% + ответы 50%) → профиль.
+// Совмещено с кейсом: вопросы и итог по 10 критериям «Стартап как диплом» + 3 совета берутся из общего API
+// (docs/CONTRACT.md), оценку питча и ответов по критериям ТЗ ставит тренер (coach.mjs).
+// Ответ диалога: строка или { text, buttons?, html?, photo? }.
 import { ApiError } from './api/errors.mjs';
 import { MediaError, MEDIA_TEXTS } from './media.mjs';
 import { createStore } from './store.mjs';
+import { PITCH_CRITERIA, ANSWER_CRITERIA, isInjection, isAbuseOnly, isTooShortForPitch } from './coach.mjs';
+import { achievementsFor, ACHIEVEMENTS, buildProfile, formatProfile, levelFor, DEFENDED_THRESHOLD } from './profile.mjs';
 
 export const MAX_INPUT_CHARS = 4000;
-export const REMIND_AFTER_MS = 2 * 24 * 60 * 60 * 1000;
+export const MAX_EDITS = 3;
+export const MAX_REPLACEMENTS = 2;
+export const TOTAL_QUESTIONS = 5;
 
-// Меню Telegram (кнопка «Меню»). В текстах сообщений команды не упоминаем.
 export const COMMANDS = Object.freeze([
-  ['start', 'О боте и начало'],
-  ['new', 'Новый питч'],
-  ['learn', 'Как подготовиться к питчу'],
-  ['result', 'Последняя оценка и советы'],
-  ['how', 'Как ставится оценка'],
+  ['start', 'Приветствие и как начать'],
+  ['new', 'Новая сессия'],
+  ['profile', 'Профиль'],
+  ['help', 'Как работает оценка'],
   ['delete', 'Удалить мои данные'],
-  ['help', 'Что умеет бот'],
 ]);
 
 const b = (text, data) => ({ text, data });
 export const BUTTONS = {
-  practice: b('🔥 Приступить к практике', 'practice'),
-  learn: b('📋 Открыть обучение', 'learn'),
-  example: b('👀 Посмотреть на примере', 'example'),
-  template: b('📝 Шаблон питча', 'template'),
-  go: b('✅ Всё верно, поехали', 'go'),
+  go: b('✅ Всё верно, поехали дальше', 'go'),
   fix: b('✏️ Поправить питч', 'fix'),
-  idk: b('🤷 Не знаю ответа', 'idk'),
-  pause: b('⏸ Пауза', 'pause'),
+  clarify: b('❓ Уточнить вопрос', 'clarify'),
+  replace: b('🔄 Изменить вопрос', 'replace'),
+  next: b('➡️ Следующий вопрос', 'next'),
+  final: b('🏁 Итоги', 'final'),
+  newSession: b('🔁 Новая сессия', 'new'),
+  profile: b('👤 Профиль', 'profile'),
+  caseCriteria: b('📋 Критерии «Стартап как диплом»', 'criteria'),
+  advice: b('✅ 3 дела до защиты', 'advice'),
+  learn: b('📋 Как подготовиться', 'learn'),
   retry: b('🔁 Повторить', 'retry'),
-  advice: b('✅ Мои 3 дела', 'advice'),
-  criteria: b('📊 Разбор по 10 критериям', 'criteria'),
-  again: b('🔄 Второй раунд', 'again'),
-  newPitch: b('🆕 Новый питч', 'new'),
-  remind: b('⏰ Напомнить через 2 дня', 'remind'),
-  pin: b('📌 Закрепить план', 'pin'),
-  how: b('❔ Как ты оцениваешь', 'how'),
-  done: (i) => b(`✔ Дело ${i}`, `done:${i}`),
 };
 
 export const TEXTS = {
-  // Подпись к фото приветствия: не длиннее 1024 знаков.
   welcome:
-    'Злой инвестор — тренажёр защиты стартапа\n\n' +
-    'Перед предзащитой или демо-днём здесь можно отрепетировать самое трудное — вопросы жюри. ' +
-    'Наедине, без зрителей и без поблажек.\n\n' +
+    'Привет! Я тренер по питчам — строгий, но доброжелательный инвестор.\n\n' +
     'Как это работает:\n' +
-    '1. Вы присылаете питч — текстом, голосовым или файлом.\n' +
-    '2. Инвестор задаёт 5 вопросов по вашему проекту и вашим ответам. Отвечать можно текстом или голосом.\n' +
-    '3. Вы получаете оценку по 10 критериям конкурса «Стартап как диплом» и 3 дела, которые можно успеть до выступления.\n' +
-    '4. Через пару дней — второй раунд: видно, что стало лучше.\n\n' +
-    'Один раунд — около 10 минут. Питч видите только вы.',
+    '1. Ты присылаешь питч — я оцениваю его по 10 критериям из 100 и говорю, что исправить.\n' +
+    '2. Можно поправить питч до 3 раз — покажу, что стало лучше.\n' +
+    '3. Задаю 5 вопросов, как на защите, и оцениваю каждый ответ.\n' +
+    '4. Итог: защищён стартап или нет, и всё копится в профиле.\n\n' +
+    'Пришли питч своего проекта: проблема, решение, рынок, деньги, команда — на 1–2 минуты чтения. Можно текстом, голосовым или файлом.',
+  help:
+    'Как работает оценка:\n' +
+    '• Питч — 10 критериев, всего 100 баллов: проблема, решение, рынок, попадание в задание, бизнес-модель, конкуренты, доказательства, масштаб, «вау», подача.\n' +
+    '• Каждый ответ на вопрос — до 20 баллов, пять ответов — до 100.\n' +
+    '• Общий балл = питч 50% + ответы 50%. От 70 — «🛡 Стартап защищён».\n' +
+    '• Баллы считает код по фиксированной шкале, поэтому одинаковый питч получает близкую оценку. Без цифр, рынка или монетизации — не больше 60.\n' +
+    '• В итоге — ещё оценка по 10 критериям конкурса «Стартап как диплом» и 3 дела до защиты.\n\n' +
+    'Чтобы начать — пришли питч.',
   learn:
     '📋 Как подготовиться к питчу\n\n' +
-    'Что должно быть готово:\n' +
-    '1. Одна фраза о проекте — 4–8 слов. Человек со стороны должен суметь её повторить.\n' +
-    '2. Проблема глазами клиента: кто именно, как решает задачу сейчас и сколько это ему стоит.\n' +
-    '3. Доказательства: интервью, пилоты, продажи, возвраты — с числами. Одна главная метрика лучше десяти.\n' +
-    '4. Деньги: кто платит, сколько стоит привлечь клиента, когда выход в ноль. Рынок — снизу вверх: клиенты × чек × частота.\n' +
-    '5. Конкуренты есть всегда, хотя бы «как сейчас» и Excel. Отличие одной фразой: «В отличие от …, мы …».\n' +
-    '6. Главный риск: самая рискованная гипотеза и как вы её проверите.\n' +
-    '7. Команда: почему именно вы и что будет с проектом после защиты.\n\n' +
-    'Как отвечать на вопросы:\n' +
-    '• Одна фраза. Вторая — только чтобы вернуться к своей сильной стороне.\n' +
-    '• Цифры и факты из прошлого, а не планы и сравнения «мы как Uber для…».\n' +
-    '• Не знаете — скажите честно и как проверите. Это лучше долгого ухода от ответа.\n' +
-    '• Заранее выберите 3 сильные стороны проекта и возвращайтесь к ним.\n\n' +
-    'И главное: произнесите ответы на трудные вопросы вслух хотя бы раз. Для этого и нужна практика.',
-  example:
-    '👀 Как выглядит раунд — на примере питча «Смена» (обучение бариста в сетях кофеен)\n\n' +
-    '▰▱▱▱▱ Вопрос 1/5 · Клиент\n' +
-    '«Кто в сети из 40 точек подписывает счёт на 1 500 ₽ за бариста? Должность и что у него болит».\n\n' +
-    'Ответ: «Операционный директор: у него текучка и простой новых точек».\n' +
-    'Инвестор: «Должность назвали — хорошо. А разговаривали с ним или додумываете?»\n\n' +
-    '…ещё 4 вопроса: доказательства, деньги, конкуренты, что будет после диплома.\n\n' +
-    '🏁 Итог: 53 из 100. Сильное — боль из своего опыта и реальный пилот. Слабое — неизвестно, сколько стоит контент для одной сети.\n\n' +
-    'Одно из трёх дел: «За 2 дня спросите управляющего пилотной сети, кто подпишет договор на 5 точек. Готово, когда знаете должность и одно условие».\n\n' +
-    'Это пример для наглядности, цифры условные.',
-  welcomeFallback: 'Сегодня вас слушает злой инвестор.',
-  askPitch:
-    'Пришлите питч одним сообщением — текстом, голосовым или файлом (PDF, DOCX, PPTX, TXT, фото слайда).\n\n' +
-    'Что важно указать: проблема и для кого, решение, что уже сделано — с цифрами, как зарабатываете.',
-  template:
-    'Скопируйте и заполните — достаточно 4–8 предложений:\n\n' +
-    'Проблема и для кого: …\nКак её решают сейчас и сколько это стоит: …\nНаше решение: …\n' +
-    'Что уже сделано (цифры: интервью, пилоты, продажи): …\nКак зарабатываем: …',
-  help:
-    'Что умеет бот:\n• репетиция защиты: питч → 5 вопросов → оценка и 3 дела;\n• обучение: как подготовиться к питчу;\n' +
-    '• второй раунд по тому же питчу с «было → стало».\n\nВсё делается кнопками под сообщениями. В меню — те же действия.',
-  confirm: 'Если всё верно — начинаем. Если что-то не так — поправьте питч и пришлите заново.',
-  fix: 'Пришлите исправленный питч одним сообщением — текстом, голосовым или файлом.',
-  pause: '⏸ Пауза. Вопрос никуда не денется: когда будете готовы — просто ответьте на него.',
-  idkAnswer: 'Не знаю ответа на этот вопрос.',
-  notText: 'Такое сообщение я не читаю. Пришлите текст, голосовое или файл.',
-  answerNoFile: 'Ответ на вопрос пришлите текстом или голосовым.',
-  emptyInput: 'Сообщение пустое. Напишите текстом или запишите голосовое.',
-  tooLong: `Слишком длинно: уложитесь в ${MAX_INPUT_CHARS} символов.`,
-  busy: 'Ещё обдумываю прошлое сообщение, подождите ответа.',
-  nothingToRetry: 'Повторять нечего — можно начать новый раунд.',
-  noResult: 'Оценки пока нет: пройдите раунд до конца.',
-  noAgain: 'Второй раунд — после первого. Пришлите питч, чтобы начать.',
-  deleted: 'Ваши питчи, ответы и напоминания удалены.',
-  howFallback: 'Каждый из 10 критериев «Стартап как диплом» получает уровень от 0 до 3. Итог из 100 считает код по весам, а не модель.',
-  demo: '⚠️ Модель пока не подключена: вопросы и оценка сейчас из заготовок, а не по вашему питчу всерьёз.',
-  remindSet: '⏰ Напомню через 2 дня — тогда пройдём второй раунд и посмотрим, что изменилось.',
-  remindNoRound: 'Напоминание про второй раунд можно поставить после первого раунда.',
-  reminder: '⏰ Прошло два дня. Сделали хоть одно из трёх дел? Давайте второй раунд — посмотрим, вырастет ли балл.',
-  pinned: '📌 План закреплён вверху чата.',
-  unknownCommand: 'Не понял. Воспользуйтесь кнопками под сообщениями или меню.',
+    '1. Одна фраза о проекте — 4–8 слов.\n' +
+    '2. Проблема глазами клиента: кто, как решает сейчас, сколько это стоит.\n' +
+    '3. Доказательства с числами: интервью, пилоты, продажи.\n' +
+    '4. Деньги: кто платит, сколько стоит привлечь клиента, когда выход в ноль. Рынок — снизу вверх.\n' +
+    '5. Конкуренты есть всегда, хотя бы «как сейчас». Отличие — одной фразой.\n' +
+    '6. Главный риск и как ты его проверишь.\n' +
+    '7. Почему именно вы и что будет с проектом после защиты.\n\n' +
+    'Отвечай одной-двумя фразами, с цифрами и фактами, без «воды». Не знаешь — скажи честно и как проверишь.',
+  offtopic: 'Я тренер по питчам и работаю только с ними 🙂 Пришли питч своего проекта или ответь на текущий вопрос.',
+  tooShort: 'Это пока не питч. Опиши: какую проблему решаешь, для кого, как и почему это выгодно.',
+  abuse: 'Давай в деловом формате — на защите так не говорят. Перепиши, пожалуйста.',
+  editsOver: `Правок было уже ${MAX_EDITS} — в зачёт идёт последняя версия. Переходим к вопросам.`,
+  fixAsk: 'Пришли исправленную версию питча целиком.',
+  clarifyAsk: 'Напиши, что именно непонятно в вопросе.',
+  replaceOver: `Заменить вопрос можно не больше ${MAX_REPLACEMENTS} раз за сессию.`,
+  answerNoFile: 'Ответ на вопрос пришли текстом или голосовым.',
+  notText: 'Такое сообщение я не читаю. Пришли текст, голосовое или файл.',
+  emptyInput: 'Сообщение пустое.',
+  tooLong: `Слишком длинно: уложись в ${MAX_INPUT_CHARS} символов.`,
+  busy: 'Ещё обдумываю прошлое сообщение — подожди ответа.',
+  noCoach: 'Тренер временно недоступен: не подключена модель. Попробуй позже.',
+  coachFailed: 'Не получилось оценить — модель не ответила. Нажми «Повторить».',
+  nothingToRetry: 'Повторять нечего — пришли питч.',
+  noResult: 'Итога пока нет — пройди сессию до конца.',
+  deleted: 'Твои питчи, ответы и статистика удалены.',
+  pressNext: 'Ответ уже оценён. Нажми «➡️ Следующий вопрос».',
+  pressFinal: 'Все 5 ответов оценены. Нажми «🏁 Итоги».',
+  unknown: 'Не понял. Пришли питч или воспользуйся кнопками под сообщениями.',
 };
 
-const LEVELS = ['нет данных', 'заявлено', 'есть цифры', 'подтверждено'];
-const fmt = (n) => (Number.isInteger(n) ? String(n) : String(n).replace('.', ','));
-export const escapeHtml = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-export const progressBar = (step, total) => '▰'.repeat(Math.max(0, Math.min(total, step))) + '▱'.repeat(Math.max(0, total - step));
+// ---------- Форматирование (ТЗ §4–§8) ----------
 
-// Тексты на случай, если API не прислал своё сообщение (внутренние коды клиента).
-const FALLBACK_ERRORS = {
-  BAD_REQUEST: 'Что-то пошло не так. Начните новый раунд.',
-  RATE_LIMITED: 'Слишком много запросов. Подождите минуту и повторите.',
-  NETWORK: 'Инвестор недоступен. Ваш ответ сохранён — нажмите «Повторить».',
-  TIMEOUT: 'Инвестор задумался слишком надолго. Ваш ответ сохранён — нажмите «Повторить».',
-  BAD_RESPONSE: 'Не получилось разобрать ответ инвестора. Ваш ответ сохранён — нажмите «Повторить».',
-  AI_UNAVAILABLE: 'Инвестор задумался. Ваш ответ сохранён — нажмите «Повторить».',
-};
+const criterionLines = (set, scores) => set.map((c, i) => `• ${c.name} — ${scores[i]}/${c.max}`);
 
-export function formatFacts(facts) {
-  if (!facts) return null;
-  const lines = ['Что я понял из питча:'];
-  for (const k of facts.known ?? []) lines.push(`✅ ${k}`);
-  for (const m of facts.missing ?? []) lines.push(`❌ нет: ${m}`);
-  lines.push('', 'Других цифр у меня нет, и выдумывать их я не буду.');
+export function formatPitchEval(e) {
+  const lines = [`📊 Оценка питча: ${e.total}/100 — «${e.level}»`, '', ...criterionLines(PITCH_CRITERIA, e.scores)];
+  if (e.capped) lines.push('', `Без цифр, рынка или монетизации больше ${e.total} не ставлю.`);
+  if (e.strengths.length) lines.push('', '💪 Сильные стороны:', ...e.strengths.map((x) => `• ${x}`));
+  if (e.weaknesses.length) lines.push('', '⚠️ Слабые места:', ...e.weaknesses.map((w) => `• ${w.criterion ? `${w.criterion}: ` : ''}${w.text}`));
+  if (e.missing.length) lines.push('', '❌ Чего не хватило:', ...e.missing.map((x) => `• ${x}`));
+  if (e.delivery) lines.push('', `🗣 Подача: ${e.delivery}`);
+  if (e.advice) lines.push('', `🎯 Главный совет: ${e.advice}`);
   return lines.join('\n');
 }
 
-export function formatQuestion(step) {
-  const topic = step.topic ? ` · ${step.topic}` : '';
-  return `${progressBar(step.step, step.totalSteps)} Вопрос ${step.step}/${step.totalSteps}${topic}\n\n${step.question}`;
-}
-
-const questionReply = (step) => ({ text: formatQuestion(step), buttons: [[BUTTONS.idk, BUTTONS.pause]] });
-
-// Итог по шагам (§10.4): крупный балл и сильное/слабое, подробности — под кнопками.
-export function formatSummary(result) {
-  const p = result.previousTotal;
-  const arrow = p == null ? '' : result.total > p ? ' ⬆️' : result.total < p ? ' ⬇️' : '';
-  const head = p != null ? `🏁 Итог: ${p} → ${result.total} из ${result.max}${arrow}` : `🏁 Итог: ${result.total} из ${result.max}`;
-  const lines = [head];
-  if (result.summary) lines.push('', `💪 Сильное: ${result.summary.strong}`, `🎯 Слабое: ${result.summary.weak}`);
+export function formatRevision(prev, e) {
+  const diff = e.total - prev.total;
+  const lines = [`🔄 Было ${prev.total} → стало ${e.total} (${diff >= 0 ? '+' : '−'}${Math.abs(diff)}) — «${e.level}»`];
+  const changed = PITCH_CRITERIA.map((c, i) => ({ c, was: prev.scores[i], now: e.scores[i] })).filter((x) => x.was !== x.now);
+  const better = changed.filter((x) => x.now > x.was);
+  const worse = changed.filter((x) => x.now < x.was);
+  const fixed = e.fixed ?? [];
+  if (better.length || fixed.length) {
+    lines.push('', '✅ Исправлено:');
+    for (const x of better) {
+      const note = fixed.find((f) => f.criterion === x.c.name)?.text;
+      lines.push(`• ${x.c.name}: ${x.was} → ${x.now}${note ? ` — ${note}` : ''}`);
+    }
+    for (const f of fixed.filter((f) => !better.some((x) => x.c.name === f.criterion))) lines.push(`• ${f.criterion ? `${f.criterion}: ` : ''}${f.text}`);
+  }
+  if (e.unchanged?.length) lines.push('', '➖ Не изменилось:', ...e.unchanged.map((x) => `• ${x}`));
+  if (worse.length || e.newProblems?.length) {
+    lines.push('', '🆕 Новые проблемы:');
+    for (const x of worse) lines.push(`• ${x.c.name}: ${x.was} → ${x.now}`);
+    for (const p of e.newProblems ?? []) lines.push(`• ${p}`);
+  }
+  if (e.advice) lines.push('', `🎯 Следующий шаг: ${e.advice}`);
   return lines.join('\n');
 }
 
-// Разбор по критериям — HTML с раскрывающейся цитатой Telegram.
-export function formatCriteriaHtml(result) {
-  const rows = result.criteria.map((c, i) => {
-    const level = Number.isInteger(c.level) ? ` (${LEVELS[c.level] ?? c.level})` : '';
-    const quote = c.evidence && c.evidence.length > 180 ? `${c.evidence.slice(0, 180)}…` : c.evidence;
-    const evidence = quote ? `\n«${escapeHtml(quote)}»` : '';
-    const comment = c.comment ? `\n${escapeHtml(c.comment)}` : '';
-    return `<b>${c.id ?? i + 1}. ${escapeHtml(c.name)}</b>: ${fmt(c.score)}/${fmt(c.max)}${level}${evidence}${comment}`;
-  });
-  return `📊 <b>Разбор по 10 критериям</b>\n<blockquote expandable>${rows.join('\n\n')}</blockquote>`;
-}
+export const formatQuestion = (n, text, replaced = false) => `Вопрос ${n}/${TOTAL_QUESTIONS}${replaced ? ' (заменён)' : ''}: ${text}`;
 
-export function formatAdvice(result, done = []) {
-  const lines = ['✅ Три дела до выступления', ''];
-  result.advice.forEach((a, i) => {
-    lines.push(`${done.includes(i + 1) ? '☑️' : `${i + 1}.`} ${typeof a === 'string' ? a : a.text}`, '');
-  });
-  return lines.join('\n').trimEnd();
-}
-
-// Полный итог одним текстом (диагностика и совместимость).
-export function formatResult(result) {
-  const lines = [formatSummary(result), '', 'По критериям:'];
-  result.criteria.forEach((c, i) => {
-    const level = Number.isInteger(c.level) ? ` (${LEVELS[c.level] ?? c.level})` : '';
-    lines.push(`${c.id ?? i + 1}. ${c.name}: ${fmt(c.score)}/${fmt(c.max)}${level}${c.comment ? ` — ${c.comment}` : ''}`);
-  });
-  lines.push('', formatAdvice(result));
+export function formatAnswerEval(e) {
+  const lines = [`📝 Ответ: ${e.total}/20`];
+  if (e.evasive) lines.push('', 'Это уход от ответа — на защите это провал. Даже «не знаю» лучше сопровождать планом проверки.');
+  if (e.strong) lines.push('', `💪 Сильное: ${e.strong}`);
+  if (e.weak) lines.push(`⚠️ Слабое: ${e.weak}`);
+  if (e.missing) lines.push(`❌ Чего не хватило: ${e.missing}`);
+  if (e.delivery) lines.push(`🗣 Подача: ${e.delivery}`);
+  if (e.hint) lines.push('', `💡 Как ответил бы сильный фаундер: ${e.hint}`);
   return lines.join('\n');
 }
 
-const adviceButtons = (result) => [
-  result.advice.map((_, i) => BUTTONS.done(i + 1)),
-  [BUTTONS.remind, BUTTONS.pin],
-  [BUTTONS.again],
-];
-const summaryButtons = [[BUTTONS.advice], [BUTTONS.criteria]];
-
-function errorText(err) {
-  if (!(err instanceof ApiError)) return FALLBACK_ERRORS.BAD_RESPONSE;
-  let text = err.fromServer && err.message ? err.message : FALLBACK_ERRORS[err.code] ?? err.message;
-  if (err.missing.length) text += '\n\nНе хватает:\n' + err.missing.map((m) => `• ${m}`).join('\n');
-  if (err.code === 'RATE_LIMITED' && err.retryAfterSec) text += `\n\nПовторите через ${err.retryAfterSec} с.`;
-  return text;
+// Сильные и зоны роста сессии — по % от максимума каждого критерия питча и ответов.
+function sessionCriteria(pitchScores, answers) {
+  const rows = PITCH_CRITERIA.map((c, i) => ({ name: c.name, pct: pitchScores[i] / c.max }));
+  ANSWER_CRITERIA.forEach((c, i) => {
+    const vals = answers.map((a) => a.scores[i]);
+    if (vals.length) rows.push({ name: `Ответы: ${c.name.toLowerCase()}`, pct: vals.reduce((x, y) => x + y, 0) / (vals.length * c.max) });
+  });
+  return rows.sort((a, b) => b.pct - a.pct);
 }
 
-export function createDialog({ api, media = null, store = createStore(), now = () => Date.now() }) {
+export function formatFinal({ pitchTotal, answersTotal, total, rows, newAchievements, levelUp }) {
+  const defended = total >= DEFENDED_THRESHOLD;
+  const lines = [
+    '🏁 Итог сессии',
+    `Питч: ${pitchTotal}/100 · Ответы: ${answersTotal}/100 · Общий балл: ${total}/100`,
+    `Вердикт: ${defended ? '«🛡 Стартап защищён»' : '«Пока не защищён»'}`,
+    '',
+    '🏆 Топ-2 сильных стороны:',
+    ...rows.slice(0, 2).map((r) => `• ${r.name} — ${Math.round(r.pct * 100)}%`),
+    '',
+    '🎯 Топ-2 зоны роста:',
+    ...rows.slice(-2).reverse().map((r) => `• ${r.name} — ${Math.round(r.pct * 100)}%`),
+  ];
+  if (newAchievements.length || levelUp) {
+    lines.push('', '🎖 Новое:');
+    if (levelUp) lines.push(`• Уровень «${levelUp}»`);
+    for (const a of newAchievements) lines.push(`• ${a}`);
+  }
+  return lines.join('\n');
+}
+
+// Критерии кейса и советы из общего API (Done.result).
+export function formatCaseCriteria(result) {
+  const lines = [`📋 По критериям «Стартап как диплом»: ${result.total}/${result.max}`, ''];
+  result.criteria.forEach((c, i) => lines.push(`${c.id ?? i + 1}. ${c.name} — ${c.score}/${c.max}${c.comment ? `: ${c.comment}` : ''}`));
+  return lines.join('\n');
+}
+
+export function formatAdvice(result) {
+  return ['✅ 3 дела до защиты', ...result.advice.map((a, i) => `${i + 1}. ${typeof a === 'string' ? a : a.text}`)].join('\n\n');
+}
+
+function apiErrorText(err) {
+  if (err instanceof ApiError && err.fromServer && err.message) return err.message;
+  return 'Сервер вопросов не ответил. Нажми «Повторить».';
+}
+
+// ---------- Диалог ----------
+
+export function createDialog({ api, coach = null, media = null, store = createStore(), now = () => Date.now() }) {
   const states = new Map();
-  let personaCache = null;
 
-  const keyOf = (chatId, userId) => `${chatId}:${userId}`;
   function stateOf(chatId, userId) {
-    const key = keyOf(chatId, userId);
+    const key = `${chatId}:${userId}`;
     let s = states.get(key);
     if (!s) {
-      const saved = store.getProfile(key);
-      s = {
-        key, chatId, userId, phase: 'idle', sessionId: null, step: null, pending: null, held: null, busy: false,
-        pitch: saved?.pitch ?? null, lastDone: saved?.lastDone ?? null, lastResult: saved?.lastResult ?? null, done: saved?.done ?? [],
-      };
+      s = { key, chatId, userId, name: null, phase: 'idle', session: null, busy: false, pending: null, lastResult: null };
       states.set(key, s);
     }
     return s;
   }
-  function reset(s, phase) {
-    s.phase = phase;
-    s.sessionId = null;
-    s.step = null;
+
+  function newSession(s) {
+    s.session = {
+      at: now(), versions: [], evals: [], edits: 0, replacements: 0, clarifications: 0,
+      apiSessionId: null, step: 0, question: null, topic: null, replaced: false, asked: [], answers: [], apiNext: null, apiDone: null,
+    };
+    s.phase = 'idle';
     s.pending = null;
-    s.held = null;
   }
-  const persist = (s) =>
-    store.setProfile(s.key, { userId: s.userId, chatId: s.chatId, pitch: s.pitch, lastDone: s.lastDone, lastResult: s.lastResult, done: s.done });
 
-  async function persona() {
-    if (personaCache) return personaCache;
+  const pitchButtons = (sess) => (sess.edits < MAX_EDITS ? [[BUTTONS.go], [BUTTONS.fix]] : [[BUTTONS.go]]);
+  const questionButtons = (sess) => (sess.replacements < MAX_REPLACEMENTS ? [[BUTTONS.clarify, BUTTONS.replace]] : [[BUTTONS.clarify]]);
+  const finalButtons = (s) => [
+    [BUTTONS.newSession, BUTTONS.profile],
+    ...(s.lastResult ? [[BUTTONS.caseCriteria], [BUTTONS.advice]] : []),
+  ];
+
+  // ---------- Питч ----------
+
+  async function evaluatePitch(s, text) {
+    if (!coach) return [TEXTS.noCoach];
+    if (isAbuseOnly(text)) return [TEXTS.abuse];
+    if (isInjection(text)) return [TEXTS.offtopic];
+    if (isTooShortForPitch(text)) return [TEXTS.tooShort];
+    const sess = s.session;
+    const previous = sess.evals.length ? { text: sess.versions.at(-1), evaluation: sess.evals.at(-1) } : null;
+    let e;
     try {
-      personaCache = await api.persona();
+      e = await coach.evaluatePitch(text, previous);
     } catch {
-      return null; // карточка не критична: покажем общий текст
+      s.pending = { kind: 'pitch', text };
+      return [{ text: TEXTS.coachFailed, buttons: [[BUTTONS.retry]] }];
     }
-    return personaCache;
+    s.pending = null;
+    if (e.kind === 'not_startup' || e.kind === 'offtopic' || e.kind === 'injection') return [TEXTS.offtopic];
+    if (previous) sess.edits++;
+    sess.versions.push(text);
+    sess.evals.push(e);
+    s.phase = 'review';
+    const body = previous ? formatRevision(previous.evaluation, e) : formatPitchEval(e);
+    return [{ text: body, buttons: pitchButtons(sess) }];
   }
 
-  // Ответ API (Step или Done) → состояние и сообщения.
-  function applyView(s, data, { fromStart = false } = {}) {
-    if (data.done) {
-      s.lastDone = { sessionId: data.sessionId, pitch: s.pitch };
-      s.lastResult = data.result;
-      s.done = [];
-      reset(s, 'idle');
-      persist(s);
-      return [{ text: formatSummary(data.result), buttons: summaryButtons }];
+  // ---------- Вопросы (общий API) ----------
+
+  function showQuestion(s, step) {
+    const sess = s.session;
+    sess.step = step.step;
+    sess.question = step.question;
+    sess.topic = step.topic ?? null;
+    sess.replaced = false;
+    sess.asked.push(step.question);
+    sess.apiNext = null;
+    s.phase = 'question';
+    return [{ text: formatQuestion(step.step, step.question), buttons: questionButtons(sess) }];
+  }
+
+  async function startQuestions(s) {
+    const sess = s.session;
+    try {
+      const step = await api.start({ userId: s.userId, pitch: sess.versions.at(-1), previousSessionId: null });
+      sess.apiSessionId = step.sessionId;
+      s.pending = null;
+      return showQuestion(s, step);
+    } catch (err) {
+      s.pending = { kind: 'start' };
+      return [{ text: apiErrorText(err), buttons: [[BUTTONS.retry]] }];
     }
-    s.sessionId = data.sessionId;
-    s.step = data.step;
-    const out = [];
-    if (fromStart) {
-      if (data.demo) out.push(TEXTS.demo);
-      const facts = formatFacts(data.facts);
-      if (facts) {
-        // Сверка фактов (§2.3): вопрос 1 придержан до «Всё верно, поехали».
-        s.phase = 'confirm';
-        s.held = data;
-        if (data.notice) out.push(data.notice);
-        out.push({ text: `${facts}\n\n${TEXTS.confirm}`, buttons: [[BUTTONS.go], [BUTTONS.fix]] });
-        return out;
+  }
+
+  // Ответ уходит в общий API; если вопрос заменён, API получает формулировку, на которую отвечал студент.
+  async function sendAnswerToApi(s, answer) {
+    const sess = s.session;
+    const text = sess.replaced ? `(Вопрос был переформулирован: «${sess.question}»)\n${answer}` : answer;
+    try {
+      const data = await api.answer({ sessionId: sess.apiSessionId, userId: s.userId, step: sess.step, answer: text.slice(0, 2000) });
+      if (data.done) {
+        sess.apiDone = data;
+        s.lastResult = data.result;
+      } else {
+        sess.apiNext = data;
       }
+      s.pending = null;
+      return null;
+    } catch (err) {
+      if (err instanceof ApiError && (err.code === 'STEP_MISMATCH' || err.code === 'SESSION_DONE')) {
+        try {
+          const cur = await api.get({ sessionId: sess.apiSessionId, userId: s.userId });
+          if (cur.done) { sess.apiDone = cur; s.lastResult = cur.result; } else sess.apiNext = cur;
+          s.pending = null;
+          return null;
+        } catch { /* ниже — повтор */ }
+      }
+      s.pending = { kind: 'api-answer', answer };
+      return err;
     }
-    s.phase = 'answer';
-    if (data.reaction) out.push(data.reaction);
-    if (data.notice) out.push(data.notice);
-    out.push(questionReply(data));
+  }
+
+  async function handleAnswer(s, answer) {
+    const sess = s.session;
+    if (isAbuseOnly(answer)) return [TEXTS.abuse];
+    if (isInjection(answer)) return [TEXTS.offtopic];
+    let e;
+    try {
+      e = await coach.evaluateAnswer({ pitch: sess.versions.at(-1), question: sess.question, answer });
+    } catch {
+      s.pending = { kind: 'answer', text: answer };
+      return [{ text: TEXTS.coachFailed, buttons: [[BUTTONS.retry]] }];
+    }
+    if (e.kind === 'offtopic' || e.kind === 'injection') return [TEXTS.offtopic];
+    sess.answers.push({ question: sess.question, answer, ...e });
+    s.phase = 'answered';
+    const err = await sendAnswerToApi(s, answer);
+    const last = sess.answers.length >= TOTAL_QUESTIONS;
+    const out = [{ text: formatAnswerEval(e), buttons: [[last ? BUTTONS.final : BUTTONS.next]] }];
+    if (err) out.push({ text: apiErrorText(err), buttons: [[BUTTONS.retry]] });
     return out;
   }
 
-  async function callApi(s, request) {
-    s.pending = request;
-    try {
-      let data;
-      if (request.kind === 'start') {
-        data = await api.start({ userId: s.userId, pitch: request.text, previousSessionId: request.previousSessionId ?? null });
-        s.pitch = request.text;
-      } else {
-        data = await api.answer({ sessionId: request.sessionId, userId: s.userId, step: request.step, answer: request.text });
-      }
-      s.pending = null;
-      return applyView(s, data, { fromStart: request.kind === 'start' });
-    } catch (err) {
-      const code = err instanceof ApiError ? err.code : 'BAD_RESPONSE';
-      if (!(err instanceof ApiError) || err.retryable) return [{ text: errorText(err), buttons: [[BUTTONS.retry]] }]; // pending сохранён
-      s.pending = null;
-      if (code === 'STEP_MISMATCH' || code === 'SESSION_DONE') return resync(s, request.sessionId);
-      if (code === 'SESSION_NOT_FOUND') {
-        reset(s, 'pitch');
-        return [{ text: errorText(err), buttons: [[BUTTONS.newPitch]] }];
-      }
-      if (code === 'EMPTY_PITCH' || code === 'NOT_A_PITCH') return [{ text: errorText(err), buttons: [[BUTTONS.template]] }];
-      return [errorText(err)];
+  async function nextQuestion(s) {
+    const sess = s.session;
+    if (s.phase !== 'answered') return [TEXTS.unknown];
+    if (s.pending?.kind === 'api-answer') {
+      const err = await sendAnswerToApi(s, s.pending.answer);
+      if (err) return [{ text: apiErrorText(err), buttons: [[BUTTONS.retry]] }];
     }
+    if (sess.answers.length >= TOTAL_QUESTIONS || sess.apiDone) return finish(s);
+    if (!sess.apiNext) return [{ text: 'Следующий вопрос ещё не пришёл. Нажми «Повторить».', buttons: [[BUTTONS.retry]] }];
+    return showQuestion(s, sess.apiNext);
   }
 
-  // Ответ уже принят или раунд закончен: берём актуальное состояние из API.
-  async function resync(s, sessionId) {
+  async function replaceQuestion(s) {
+    const sess = s.session;
+    if (s.phase !== 'question') return [TEXTS.unknown];
+    if (sess.replacements >= MAX_REPLACEMENTS) return [TEXTS.replaceOver];
+    let q = null;
     try {
-      return applyView(s, await api.get({ sessionId, userId: s.userId }));
-    } catch (err) {
-      reset(s, 'pitch');
-      return [{ text: errorText(err), buttons: [[BUTTONS.newPitch]] }];
+      q = await coach.alternativeQuestion({ pitch: sess.versions.at(-1), question: sess.question, topic: sess.topic, asked: sess.asked });
+    } catch {
+      q = null;
     }
+    if (!q) return [{ text: TEXTS.coachFailed, buttons: questionButtons(sess) }];
+    sess.replacements++;
+    sess.question = q;
+    sess.replaced = true;
+    sess.asked.push(q);
+    return [{ text: formatQuestion(sess.step, q, true), buttons: questionButtons(sess) }];
   }
 
-  async function startPractice(s) {
-    reset(s, 'pitch');
-    const p = await persona();
-    const card = p ? `Сегодня вас слушает ${p.name}, ${String(p.title ?? '').toLowerCase()}.\n\n${p.intro}` : TEXTS.welcomeFallback;
-    return [{ photo: 'persona', personaId: p?.id ?? null, text: `${card}\n\n${TEXTS.askPitch}`, buttons: [[BUTTONS.template, BUTTONS.example]] }];
+  async function clarify(s, request) {
+    const sess = s.session;
+    let text = null;
+    try {
+      text = await coach.clarify({ pitch: sess.versions.at(-1), question: sess.question, request });
+    } catch {
+      text = null;
+    }
+    s.phase = 'question';
+    sess.clarifications++;
+    if (!text) return [{ text: TEXTS.coachFailed, buttons: questionButtons(sess) }];
+    return [`❓ ${text}`, { text: formatQuestion(sess.step, sess.question, sess.replaced), buttons: questionButtons(sess) }];
   }
 
-  const welcome = () => [{ photo: 'welcome', text: TEXTS.welcome, buttons: [[BUTTONS.practice], [BUTTONS.learn], [BUTTONS.example]] }];
+  // ---------- Итог и профиль ----------
+
+  function finish(s) {
+    const sess = s.session;
+    const lastEval = sess.evals.at(-1);
+    const pitchTotal = lastEval.total;
+    const answersTotal = sess.answers.reduce((a, x) => a + x.total, 0);
+    const total = Math.round(pitchTotal * 0.5 + answersTotal * 0.5);
+    const before = store.getUser(s.userId).sessions;
+    const xpBefore = before.reduce((a, x) => a + (x.total ?? 0), 0);
+    const achBefore = achievementsFor(before, now());
+    const record = {
+      at: sess.at,
+      pitchTotal,
+      answersTotal,
+      total,
+      defended: total >= DEFENDED_THRESHOLD,
+      pitchScores: lastEval.scores,
+      pitchTotals: sess.evals.map((e) => e.total),
+      answers: sess.answers.map((a) => ({ total: a.total, scores: a.scores, evasive: a.evasive })),
+      edits: sess.edits,
+      replacements: sess.replacements,
+      clarifications: sess.clarifications,
+      issues: [...new Set([...lastEval.issues, ...sess.answers.flatMap((a) => a.issues)])],
+      caseTotal: sess.apiDone?.result?.total ?? null,
+      texts: { pitches: sess.versions, answers: sess.answers.map((a) => ({ question: a.question, answer: a.answer })) },
+    };
+    store.addSession(s.userId, s.name, record);
+    const after = store.getUser(s.userId).sessions;
+    const achAfter = achievementsFor(after, now());
+    const newAchievements = [...achAfter].filter((a) => !achBefore.has(a)).map((a) => ACHIEVEMENTS[a]);
+    const lvlBefore = levelFor(xpBefore);
+    const lvlAfter = levelFor(xpBefore + total);
+    const rows = sessionCriteria(lastEval.scores, sess.answers);
+    s.phase = 'final';
+    return [{
+      text: formatFinal({ pitchTotal, answersTotal, total, rows, newAchievements, levelUp: lvlAfter.index > lvlBefore.index ? lvlAfter.name : null }),
+      buttons: finalButtons(s),
+    }];
+  }
+
+  function profile(s) {
+    const user = store.getUser(s.userId);
+    const p = buildProfile({ name: s.name ?? user.name, sessions: user.sessions, allUsers: store.allUsers(), userId: s.userId, now: now() });
+    return [{ text: formatProfile(p), buttons: [[BUTTONS.newSession]] }];
+  }
 
   async function deleteData(s) {
     try {
       await api.deleteUser({ userId: s.userId });
-    } catch (err) {
-      return [{ text: errorText(err), buttons: [[BUTTONS.retry]] }];
+    } catch {
+      // данные бота удаляем в любом случае
     }
     store.deleteUser(s.userId);
-    reset(s, 'idle');
-    Object.assign(s, { lastDone: null, lastResult: null, pitch: null, done: [] });
-    return [{ text: TEXTS.deleted, buttons: [[BUTTONS.practice]] }];
+    newSession(s);
+    s.lastResult = null;
+    return [TEXTS.deleted];
   }
 
-  // Кнопки и команды меню — одни и те же действия.
+  // ---------- Кнопки и команды ----------
+
   async function action(s, name) {
+    const sess = s.session;
     switch (name) {
       case 'start':
-        reset(s, 'idle');
-        return welcome();
-      case 'learn':
-        return [{ text: TEXTS.learn, buttons: [[BUTTONS.practice]] }];
-      case 'example':
-        return [{ text: TEXTS.example, buttons: [[BUTTONS.practice]] }];
-      case 'template':
-        return [TEXTS.template];
-      case 'practice':
+        newSession(s);
+        return [{ photo: 'welcome', text: TEXTS.welcome, buttons: [[BUTTONS.learn, BUTTONS.profile]] }];
       case 'new':
-        return startPractice(s);
-      case 'go':
-        if (s.phase !== 'confirm' || !s.held) return [TEXTS.nothingToRetry];
-        s.phase = 'answer';
-        return [questionReply(s.held)];
-      case 'fix':
-        reset(s, 'pitch');
-        return [TEXTS.fix];
-      case 'idk':
-        if (s.phase !== 'answer') return [TEXTS.unknownCommand];
-        return callApi(s, { kind: 'answer', sessionId: s.sessionId, step: s.step, text: TEXTS.idkAnswer });
-      case 'pause':
-        return [TEXTS.pause];
-      case 'retry':
-        if (!s.pending) return [{ text: TEXTS.nothingToRetry, buttons: [[BUTTONS.newPitch]] }];
-        return callApi(s, s.pending);
-      case 'advice':
-        if (!s.lastResult) return [TEXTS.noResult];
-        return [{ text: formatAdvice(s.lastResult, s.done), buttons: adviceButtons(s.lastResult) }];
-      case 'criteria':
-        if (!s.lastResult) return [TEXTS.noResult];
-        return [{ text: formatCriteriaHtml(s.lastResult), html: true, buttons: [[BUTTONS.advice]] }];
-      case 'result':
-        if (!s.lastResult) return [{ text: TEXTS.noResult, buttons: [[BUTTONS.practice]] }];
-        return [{ text: formatSummary(s.lastResult), buttons: summaryButtons }];
-      case 'again':
-        if (!s.lastDone) return [TEXTS.noAgain];
-        reset(s, 'pitch');
-        return callApi(s, { kind: 'start', text: s.lastDone.pitch, previousSessionId: s.lastDone.sessionId });
-      case 'remind':
-        if (!s.lastDone) return [TEXTS.remindNoRound];
-        store.addReminder({ chatId: s.chatId, userId: s.userId, dueAt: now() + REMIND_AFTER_MS });
-        return [TEXTS.remindSet];
-      case 'pin':
-        return [{ action: 'pin' }, TEXTS.pinned];
-      case 'how': {
-        const p = await persona();
-        return [p?.howScored ?? TEXTS.howFallback];
-      }
+      case 'practice':
+        newSession(s);
+        return [{ text: 'Новая сессия. Пришли питч своего проекта: проблема, решение, рынок, деньги, команда — на 1–2 минуты чтения.', buttons: [[BUTTONS.learn]] }];
+      case 'help':
+      case 'how':
+        return [TEXTS.help];
+      case 'learn':
+        return [TEXTS.learn];
+      case 'profile':
+        return profile(s);
       case 'delete':
         return deleteData(s);
-      case 'help':
-        return [{ text: TEXTS.help, buttons: [[BUTTONS.practice], [BUTTONS.learn]] }];
-      default: {
-        const m = /^done:(\d)$/.exec(name);
-        if (m && s.lastResult) {
-          const i = Number(m[1]);
-          if (!s.done.includes(i)) s.done.push(i);
-          persist(s);
-          const left = s.lastResult.advice.length - s.done.length;
-          const reply = left > 0
-            ? `☑️ Дело ${i} — сделано. Осталось: ${left}.`
-            : { text: '🏆 Все три дела сделаны. Самое время для второго раунда.', buttons: [[BUTTONS.again]] };
-          return [{ action: 'markDone', index: i }, reply];
-        }
-        return [TEXTS.unknownCommand];
+      case 'go':
+        if (s.phase !== 'review') return [TEXTS.unknown];
+        return startQuestions(s);
+      case 'fix':
+        if (s.phase !== 'review') return [TEXTS.unknown];
+        if (sess.edits >= MAX_EDITS) return [TEXTS.editsOver, ...(await startQuestions(s))];
+        s.phase = 'fixing';
+        return [TEXTS.fixAsk];
+      case 'clarify':
+        if (s.phase !== 'question') return [TEXTS.unknown];
+        s.phase = 'clarify';
+        return [TEXTS.clarifyAsk];
+      case 'replace':
+        return replaceQuestion(s);
+      case 'next':
+      case 'final':
+        return nextQuestion(s);
+      case 'criteria':
+        return s.lastResult ? [formatCaseCriteria(s.lastResult)] : [TEXTS.noResult];
+      case 'advice':
+        return s.lastResult ? [formatAdvice(s.lastResult)] : [TEXTS.noResult];
+      case 'retry': {
+        const p = s.pending;
+        if (!p) return [TEXTS.nothingToRetry];
+        if (p.kind === 'pitch') return evaluatePitch(s, p.text);
+        if (p.kind === 'start') return startQuestions(s);
+        if (p.kind === 'answer') return handleAnswer(s, p.text);
+        if (p.kind === 'api-answer') return nextQuestion(s);
+        return [TEXTS.nothingToRetry];
       }
+      default:
+        return [TEXTS.unknown];
     }
   }
 
-  // Голосовое или файл → текст. Возвращает { text, note } или { reply }.
+  // Голосовое или файл → текст.
   async function readMedia(s, item) {
-    if (s.phase === 'answer' && !['voice', 'audio'].includes(item.kind)) return { reply: [TEXTS.answerNoFile] };
+    const answering = s.phase === 'question' || s.phase === 'clarify';
+    if (answering && !['voice', 'audio'].includes(item.kind)) return { reply: [TEXTS.answerNoFile] };
     if (!media) return { reply: [MEDIA_TEXTS.NO_RECOGNITION] };
     try {
       const r = await media.toText(item);
       const quote = r.text.length > 300 ? `${r.text.slice(0, 300)}…` : r.text;
       const note = r.source === 'voice'
         ? `🎙 Расслышал так:\n«${quote}»`
-        : `📄 Взял текст из файла (${r.text.length} знаков)${r.shortened ? ', длинный — сократил до сути, проверьте' : ''}:\n«${quote}»`;
+        : `📄 Взял текст из файла (${r.text.length} знаков)${r.shortened ? ', длинный — сократил до сути, проверь' : ''}.`;
       return { text: r.text, note };
     } catch (err) {
       return { reply: [err instanceof MediaError ? err.message : MEDIA_TEXTS.FAILED] };
@@ -417,6 +498,7 @@ export function createDialog({ api, media = null, store = createStore(), now = (
   }
 
   async function handleUnlocked(s, input) {
+    if (!s.session) newSession(s);
     if (input.callback) return action(s, input.callback);
 
     let text = input.text;
@@ -430,26 +512,40 @@ export function createDialog({ api, media = null, store = createStore(), now = (
     }
     const trimmed = text.trim();
     if (!note && trimmed.startsWith('/')) {
-      const [cmd, arg] = trimmed.slice(1).split(/\s+/);
-      const name = cmd.split('@')[0].toLowerCase();
-      if (name === 'start' && arg === 'demo') return action(s, 'example'); // t.me/…?start=demo для QR на слайде
-      return action(s, name);
+      const [cmd] = trimmed.slice(1).split(/\s+/);
+      return action(s, cmd.split('@')[0].toLowerCase());
     }
     if (!trimmed) return [TEXTS.emptyInput];
-    if (trimmed.length > MAX_INPUT_CHARS) return note ? [note, TEXTS.tooLong] : [TEXTS.tooLong];
+    if (trimmed.length > MAX_INPUT_CHARS) return [TEXTS.tooLong];
+    if (!coach) return [TEXTS.noCoach];
 
     const out = note ? [note] : [];
-    if (s.phase === 'answer') {
-      return [...out, ...(await callApi(s, { kind: 'answer', sessionId: s.sessionId, step: s.step, text: trimmed }))];
+    switch (s.phase) {
+      case 'question':
+        return [...out, ...(await handleAnswer(s, trimmed))];
+      case 'clarify':
+        if (isAbuseOnly(trimmed)) return [TEXTS.abuse];
+        if (isInjection(trimmed)) return [TEXTS.offtopic];
+        return [...out, ...(await clarify(s, trimmed))];
+      case 'answered':
+        return [s.session.answers.length >= TOTAL_QUESTIONS ? TEXTS.pressFinal : TEXTS.pressNext];
+      case 'review':
+        // Новый текст на этапе оценки — это исправленная версия (если правки остались).
+        if (s.session.edits >= MAX_EDITS) return [TEXTS.editsOver, ...(await startQuestions(s))];
+        return [...out, ...(await evaluatePitch(s, trimmed))];
+      case 'final':
+        newSession(s);
+        return [...out, ...(await evaluatePitch(s, trimmed))];
+      default: // idle, fixing
+        return [...out, ...(await evaluatePitch(s, trimmed))];
     }
-    // idle, ожидание питча или «поправить» на сверке фактов: текст — это (новый) питч.
-    return [...out, ...(await callApi(s, { kind: 'start', text: trimmed }))];
   }
 
   return {
-    // input: { chatId, userId, text?, media?, callback? }
-    async handle({ chatId, userId, ...input }) {
+    // input: { chatId, userId, name?, text?, media?, callback? }
+    async handle({ chatId, userId, name, ...input }) {
       const s = stateOf(chatId, userId);
+      if (name) s.name = name;
       if (s.busy) return [TEXTS.busy];
       s.busy = true;
       try {
@@ -458,8 +554,6 @@ export function createDialog({ api, media = null, store = createStore(), now = (
         s.busy = false;
       }
     },
-    // Сообщение-напоминание о втором раунде.
-    reminderReply: () => ({ text: TEXTS.reminder, buttons: [[BUTTONS.again], [BUTTONS.newPitch]] }),
     _states: states,
   };
 }

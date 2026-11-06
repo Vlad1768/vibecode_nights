@@ -1,6 +1,7 @@
-// Небольшое хранилище бота: прошлый раунд пользователя (для «Второго раунда») и напоминания.
+// Небольшое хранилище бота: прошлый раунд пользователя (для «Второго раунда»), напоминания и история сессий для профиля.
 // JSON-файл с атомарной записью; без DATA_DIR живёт в памяти (тесты, локальный запуск).
-// Тексты питчей хранятся не дольше 14 дней — как сессии в API; «Удалить мои данные» стирает всё.
+// Тексты питчей и ответов хранятся не дольше 14 дней — как сессии в API; баллы для профиля остаются.
+// «Удалить мои данные» стирает всё.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -8,12 +9,12 @@ export const KEEP_MS = 14 * 24 * 60 * 60 * 1000;
 
 export function createStore({ dir = null, now = () => Date.now() } = {}) {
   const file = dir ? join(dir, 'bot-state.json') : null;
-  let data = { profiles: {}, reminders: [] };
+  let data = { profiles: {}, reminders: [], users: {} };
   if (file) {
     mkdirSync(dir, { recursive: true });
     try {
       const parsed = JSON.parse(readFileSync(file, 'utf8'));
-      if (parsed && typeof parsed === 'object') data = { profiles: parsed.profiles ?? {}, reminders: parsed.reminders ?? [] };
+      if (parsed && typeof parsed === 'object') data = { profiles: parsed.profiles ?? {}, reminders: parsed.reminders ?? [], users: parsed.users ?? {} };
     } catch {
       // файла ещё нет или он повреждён — начинаем с пустого
     }
@@ -35,6 +36,12 @@ export function createStore({ dir = null, now = () => Date.now() } = {}) {
     const cutoff = now() - KEEP_MS;
     for (const [key, p] of Object.entries(data.profiles)) if ((p.updatedAt ?? 0) < cutoff) delete data.profiles[key];
     data.reminders = data.reminders.filter((r) => r.dueAt > cutoff);
+    // Старые тексты удаляем, баллы оставляем.
+    for (const u of Object.values(data.users)) {
+      for (const sess of u.sessions ?? []) {
+        if (sess.at < cutoff && sess.texts) delete sess.texts;
+      }
+    }
   }
   prune();
 
@@ -44,7 +51,17 @@ export function createStore({ dir = null, now = () => Date.now() } = {}) {
       data.profiles[key] = { ...(data.profiles[key] ?? {}), ...patch, updatedAt: now() };
       save();
     },
+    // История сессий для профиля (ТЗ §9).
+    addSession(userId, name, session) {
+      const u = (data.users[userId] ??= { sessions: [] });
+      if (name) u.name = name;
+      u.sessions.push(session);
+      save();
+    },
+    getUser: (userId) => data.users[userId] ?? { sessions: [] },
+    allUsers: () => Object.entries(data.users).map(([userId, u]) => ({ userId, name: u.name, sessions: u.sessions ?? [] })),
     deleteUser(userId) {
+      delete data.users[userId];
       for (const [key, p] of Object.entries(data.profiles)) if (p.userId === userId) delete data.profiles[key];
       data.reminders = data.reminders.filter((r) => r.userId !== userId);
       save();
