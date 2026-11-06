@@ -38,8 +38,13 @@ from pathlib import Path
 import re, subprocess
 # Only routing/security directives are allowed in logs. Never dump arbitrary
 # nginx configuration: it can contain Authorization headers or credentials.
-result = subprocess.run(['nginx', '-T'], capture_output=True, text=True)
-print('nginx configuration check:', 'ok' if result.returncode == 0 else 'failed')
+try:
+    result = subprocess.run(['nginx', '-T'], capture_output=True, text=True)
+    print('nginx configuration check:', 'ok' if result.returncode == 0 else 'failed')
+except FileNotFoundError:
+    # The bot host intentionally runs only Node and has no nginx binary.
+    result = subprocess.CompletedProcess(['nginx', '-T'], 127, stdout='', stderr='')
+    print('nginx configuration check: not installed')
 filename = ''
 allowed = {'listen', 'server_name', 'root', 'location', 'try_files', 'include',
            'client_max_body_size', 'client_body_timeout', 'send_timeout',
