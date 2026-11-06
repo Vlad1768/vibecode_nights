@@ -2,11 +2,13 @@
 // на вход — сообщение, на выход — список текстов. Состояние хранится отдельно для каждой
 // пары (чат, пользователь), поэтому сессии разных людей не смешиваются.
 import { ApiError } from './api/errors.mjs';
+import { MediaError, MEDIA_TEXTS } from './media.mjs';
 
 export const MAX_INPUT_CHARS = 4000;
 
 export const COMMANDS = Object.freeze([
-  ['start', 'Карточка инвестора и начало'],
+  ['start', 'О боте и начало'],
+  ['learn', 'Как подготовиться к питчу'],
   ['new', 'Новый питч'],
   ['again', 'Второй раунд по прошлому питчу'],
   ['result', 'Последняя оценка и советы'],
@@ -17,16 +19,48 @@ export const COMMANDS = Object.freeze([
   ['help', 'Список команд'],
 ]);
 
+// Кнопки под сообщениями (callback_data ≤ 64 байт).
+export const BUTTONS = {
+  learn: { text: '📋 Открыть обучение', data: 'learn' },
+  practice: { text: '🔥 Приступить к практике', data: 'practice' },
+};
+
 export const TEXTS = {
-  welcomeFallback:
-    'Я — злой инвестор. Задам 5 неудобных вопросов по вашему стартапу, поставлю оценку ' +
-    'по 10 критериям «Стартап как диплом» и дам 3 совета, которые можно успеть до выступления.',
+  // Подпись к фото приветствия: не длиннее 1024 знаков.
+  welcome:
+    'Злой инвестор — тренажёр защиты стартапа\n\n' +
+    'Перед предзащитой или демо-днём здесь можно отрепетировать самое трудное — вопросы жюри. ' +
+    'Наедине, без зрителей и без поблажек.\n\n' +
+    'Как это работает:\n' +
+    '1. Вы присылаете питч — текстом, голосовым или файлом.\n' +
+    '2. Инвестор задаёт 5 вопросов по вашему проекту и вашим ответам. Отвечать можно текстом или голосом.\n' +
+    '3. Вы получаете оценку по 10 критериям конкурса «Стартап как диплом» и 3 дела, которые можно успеть до выступления.\n' +
+    '4. Через пару дней — второй раунд: видно, что стало лучше.\n\n' +
+    'Один раунд — около 10 минут. Начните с обучения или сразу переходите к практике.',
+  learn:
+    '📋 Как подготовиться к питчу\n\n' +
+    'Что должно быть готово:\n' +
+    '1. Одна фраза о проекте — 4–8 слов. Человек со стороны должен суметь её повторить.\n' +
+    '2. Проблема глазами клиента: кто именно, как решает задачу сейчас и сколько это ему стоит.\n' +
+    '3. Доказательства: интервью, пилоты, продажи, возвраты — с числами. Одна главная метрика лучше десяти.\n' +
+    '4. Деньги: кто платит, сколько стоит привлечь клиента, когда выход в ноль. Рынок — снизу вверх: клиенты × чек × частота.\n' +
+    '5. Конкуренты есть всегда, хотя бы «как сейчас» и Excel. Отличие одной фразой: «В отличие от …, мы …».\n' +
+    '6. Главный риск: самая рискованная гипотеза и как вы её проверите.\n' +
+    '7. Команда: почему именно вы и что будет с проектом после защиты.\n\n' +
+    'Как отвечать на вопросы:\n' +
+    '• Одна фраза. Вторая — только чтобы вернуться к своей сильной стороне.\n' +
+    '• Цифры и факты из прошлого, а не планы и сравнения «мы как Uber для…».\n' +
+    '• Не знаете — скажите честно и как проверите. Это лучше долгого ухода от ответа.\n' +
+    '• Заранее выберите 3 сильные стороны проекта и возвращайтесь к ним.\n\n' +
+    'И главное: произнесите ответы на трудные вопросы вслух хотя бы раз. Для этого и нужна практика.',
+  welcomeFallback: 'Сегодня вас слушает злой инвестор.',
   askPitch:
-    'Вставьте описание стартапа одним сообщением: проблема и для кого, решение, что уже сделано ' +
-    'с цифрами, как зарабатываете. До 4000 знаков. Файлы и ссылки я не открываю.',
+    'Пришлите питч одним сообщением — текстом, голосовым или файлом (PDF, DOCX, PPTX, TXT, фото слайда).\n\n' +
+    'Что важно указать: проблема и для кого, решение, что уже сделано — с цифрами, как зарабатываете.',
   help: 'Команды:\n' + COMMANDS.map(([c, d]) => `/${c} — ${d}`).join('\n'),
-  notText: 'Я понимаю только текст: файлы, фото и стикеры не открываю. Напишите сообщением.',
-  emptyInput: 'Сообщение пустое. Напишите текстом.',
+  notText: 'Такое сообщение я не читаю. Пришлите текст, голосовое или файл.',
+  answerNoFile: 'Ответ на вопрос пришлите текстом или голосовым.',
+  emptyInput: 'Сообщение пустое. Напишите текстом или запишите голосовое.',
   tooLong: `Слишком длинно: уложитесь в ${MAX_INPUT_CHARS} символов.`,
   busy: 'Ещё обдумываю прошлое сообщение, подождите ответа.',
   cancelled: 'Раунд прерван. /new — начать заново.',
@@ -35,7 +69,7 @@ export const TEXTS = {
   noAgain: 'Второй раунд — после первого. Пришлите питч, чтобы начать.',
   deleted: 'Ваши питчи и ответы удалены. /start — начать заново.',
   howFallback: 'Каждый из 10 критериев «Стартап как диплом» получает уровень от 0 до 3. Итог из 100 считает код по весам.',
-  demo: '(демо-режим: ответы из заготовок, модель не подключена)',
+  demo: '⚠️ Модель пока не подключена: вопросы и оценка сейчас из заготовок, а не по вашему питчу всерьёз.',
   unknownCommand: 'Не знаю такой команды. /help — список команд.',
   retryHint: 'Ваш ответ сохранён — отправьте /retry.',
 };
@@ -109,7 +143,8 @@ function errorText(err) {
   return text;
 }
 
-export function createDialog({ api }) {
+// Ответ диалога: строка или объект { text, buttons?, photo? } (photo: 'welcome' — фото приветствия, если задано).
+export function createDialog({ api, media = null }) {
   // key → { phase: 'idle'|'pitch'|'answer', sessionId, step, pending, busy, lastDone, lastResult }
   const states = new Map();
   let personaCache = null;
@@ -187,16 +222,26 @@ export function createDialog({ api }) {
     }
   }
 
+  // Начало практики: карточка инвестора и просьба прислать питч.
+  async function startPractice(s) {
+    reset(s, 'pitch');
+    const p = await persona();
+    const card = p ? `Сегодня вас слушает ${p.name}, ${String(p.title ?? '').toLowerCase()}.\n\n${p.intro}` : TEXTS.welcomeFallback;
+    return [`${card}\n\n${TEXTS.askPitch}`];
+  }
+
+  const welcome = () => [{ photo: 'welcome', text: TEXTS.welcome, buttons: [[BUTTONS.learn], [BUTTONS.practice]] }];
+  const learn = () => [{ text: TEXTS.learn, buttons: [[BUTTONS.practice]] }];
+
   async function command(s, userId, name) {
     switch (name) {
-      case '/start': {
-        reset(s, 'pitch');
-        const p = await persona();
-        return [p ? `${p.intro}\n\n${TEXTS.askPitch}` : `${TEXTS.welcomeFallback}\n\n${TEXTS.askPitch}`];
-      }
+      case '/start':
+        reset(s, 'idle');
+        return welcome();
+      case '/learn':
+        return learn();
       case '/new':
-        reset(s, 'pitch');
-        return [TEXTS.askPitch];
+        return startPractice(s);
       case '/again':
         if (!s.lastDone) return [TEXTS.noAgain];
         reset(s, 'pitch');
@@ -231,28 +276,58 @@ export function createDialog({ api }) {
     }
   }
 
-  async function handleUnlocked(s, userId, text) {
-    if (typeof text !== 'string') return [TEXTS.notText];
-    const trimmed = text.trim();
-    if (trimmed.startsWith('/')) return command(s, userId, trimmed.split(/[\s@]/)[0].toLowerCase());
-    if (!trimmed) return [TEXTS.emptyInput];
-    if (trimmed.length > MAX_INPUT_CHARS) return [TEXTS.tooLong];
+  // Голосовое или файл → текст. Возвращает { text, note } или { reply } с сообщением об ошибке.
+  async function readMedia(s, item) {
+    if (s.phase === 'answer' && !['voice', 'audio'].includes(item.kind)) return { reply: [TEXTS.answerNoFile] };
+    if (!media) return { reply: [MEDIA_TEXTS.NO_RECOGNITION] };
+    try {
+      const r = await media.toText(item);
+      const quote = r.text.length > 300 ? `${r.text.slice(0, 300)}…` : r.text;
+      const note = r.source === 'voice'
+        ? `🎙 Расслышал так:\n«${quote}»`
+        : `📄 Взял текст из файла (${r.text.length} знаков)${r.shortened ? ', длинный — сократил до сути, проверьте' : ''}:\n«${quote}»`;
+      return { text: r.text, note };
+    } catch (err) {
+      return { reply: [err instanceof MediaError ? err.message : MEDIA_TEXTS.FAILED] };
+    }
+  }
 
+  async function handleUnlocked(s, userId, input) {
+    if (input.callback === 'learn') return learn();
+    if (input.callback === 'practice') return startPractice(s);
+    if (input.callback) return [TEXTS.unknownCommand];
+
+    let text = input.text;
+    let note = null;
+    if (input.media) {
+      const r = await readMedia(s, input.media);
+      if (r.reply) return r.reply;
+      ({ text, note } = r);
+    } else if (typeof text !== 'string') {
+      return [TEXTS.notText];
+    }
+    const trimmed = text.trim();
+    if (!note && trimmed.startsWith('/')) return command(s, userId, trimmed.split(/[\s@]/)[0].toLowerCase());
+    if (!trimmed) return [TEXTS.emptyInput];
+    if (trimmed.length > MAX_INPUT_CHARS) return note ? [note, TEXTS.tooLong] : [TEXTS.tooLong];
+
+    const out = note ? [note] : [];
     if (s.phase === 'answer') {
-      return callApi(s, userId, { kind: 'answer', sessionId: s.sessionId, step: s.step, text: trimmed });
+      return [...out, ...(await callApi(s, userId, { kind: 'answer', sessionId: s.sessionId, step: s.step, text: trimmed }))];
     }
     // idle или ожидание питча: текст считается описанием стартапа.
-    return callApi(s, userId, { kind: 'start', text: trimmed });
+    return [...out, ...(await callApi(s, userId, { kind: 'start', text: trimmed }))];
   }
 
   return {
     // userId — строка вида "tg:<id>" (контракт, раздел 6).
-    async handle({ chatId, userId, text }) {
+    // input: { chatId, userId, text?, media?, callback? }
+    async handle({ chatId, userId, ...input }) {
       const s = stateOf(keyOf(chatId, userId));
       if (s.busy) return [TEXTS.busy];
       s.busy = true;
       try {
-        return await handleUnlocked(s, userId, text);
+        return await handleUnlocked(s, userId, input);
       } finally {
         s.busy = false;
       }

@@ -1,11 +1,29 @@
 // Точка входа: long polling Telegram → диалог → API тренажёра.
 // Запуск: BOT_TELEGRAM_TOKEN=... node bot/src/main.mjs
 import http from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.mjs';
 import { createTelegram, TelegramError } from './telegram.mjs';
 import { createDialog, COMMANDS } from './dialog.mjs';
 import { createMockApi } from './api/mock.mjs';
 import { createHttpApi } from './api/http.mjs';
+import { createMediaReader } from './media.mjs';
+import { inputFromMessage } from './input.mjs';
+import { createGeminiClientFromEnv } from '../../integrations/gemini/client.mjs';
+
+// Фото приветствия: BOT_WELCOME_PHOTO (file_id или https-ссылка) или файл bot/assets/welcome.{jpg,jpeg,png}.
+const ASSETS = fileURLToPath(new URL('../assets/', import.meta.url));
+function welcomePhotoSource(env) {
+  if (env.BOT_WELCOME_PHOTO) return env.BOT_WELCOME_PHOTO.trim();
+  for (const ext of ['jpg', 'jpeg', 'png']) {
+    const path = `${ASSETS}welcome.${ext}`;
+    if (existsSync(path)) return { path, filename: `welcome.${ext}`, mimeType: ext === 'png' ? 'image/png' : 'image/jpeg' };
+  }
+  return null;
+}
+
 
 // Журнал в JSON-строках: без текстов сообщений и без секретов.
 function log(level, event, fields = {}) {
@@ -33,7 +51,34 @@ async function main() {
   if (api.mode === 'mock') log('warn', 'api.mock', { hint: 'TRAINER_API_URL не задан — демо-режим' });
 
   const tg = createTelegram({ token: config.token, baseUrl: config.telegramApiBase });
-  const dialog = createDialog({ api });
+  let gemini = null;
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      gemini = createGeminiClientFromEnv(process.env, { timeoutMs: 60_000, maxOutputTokens: 4096 });
+    } catch (err) {
+      log('warn', 'gemini.config_invalid', { error: err?.code ?? err?.message });
+    }
+  }
+  if (!gemini) log('warn', 'media.no_recognition', { hint: 'GEMINI_API_KEY не задан — голос, PDF и фото не распознаются' });
+  const media = createMediaReader({ gemini, download: (fileId, max) => tg.downloadFile(fileId, max) });
+  const dialog = createDialog({ api, media });
+
+  const welcomeSource = welcomePhotoSource(process.env);
+  let welcomeFileId = typeof welcomeSource === 'string' ? welcomeSource : null;
+  async function sendReply(chatId, reply) {
+    if (typeof reply === 'string') return tg.sendMessage(chatId, reply);
+    if (reply.photo === 'welcome' && welcomeSource) {
+      try {
+        const photo = welcomeFileId ?? { buffer: await readFile(welcomeSource.path), filename: welcomeSource.filename, mimeType: welcomeSource.mimeType };
+        const id = await tg.sendPhoto(chatId, photo, { caption: reply.text, buttons: reply.buttons });
+        if (!welcomeFileId && id) welcomeFileId = id;
+        return;
+      } catch (err) {
+        log('warn', 'welcome.photo_failed', { error: err?.message });
+      }
+    }
+    return tg.sendMessage(chatId, reply.text, { buttons: reply.buttons });
+  }
   const stop = new AbortController();
   const inFlight = new Set();
   let lastPollOk = Date.now();
@@ -56,29 +101,30 @@ async function main() {
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-  async function process1(message) {
-    const chatId = message.chat.id;
+  async function process1(chat, from, input, callbackId) {
+    const chatId = chat.id;
     // Только личные чаты: в группах сессии участников смешивались бы в одном окне.
-    if (message.chat.type !== 'private') return;
-    const userId = `tg:${message.from?.id ?? chatId}`;
+    if (chat.type !== 'private') return;
+    const userId = `tg:${from?.id ?? chatId}`;
     const started = Date.now();
     try {
+      if (callbackId) tg.answerCallback(callbackId);
       const typing = setInterval(() => tg.sendTyping(chatId), 4_000);
       tg.sendTyping(chatId);
       let replies;
       try {
-        replies = await dialog.handle({ chatId, userId, text: message.text });
+        replies = await dialog.handle({ chatId, userId, ...input });
       } finally {
         clearInterval(typing);
       }
-      for (const text of replies) await tg.sendMessage(chatId, text);
-      log('info', 'message.handled', { chat: chatId, ms: Date.now() - started });
+      for (const reply of replies) await sendReply(chatId, reply);
+      log('info', 'message.handled', { chat: chatId, kind: input.callback ? 'button' : input.media?.kind ?? 'text', ms: Date.now() - started });
     } catch (err) {
       log('error', 'message.failed', { chat: chatId, error: err?.message ?? String(err) });
     }
   }
 
-  log('info', 'bot.started', { api: api.mode });
+  log('info', 'bot.started', { api: api.mode, recognition: !!gemini, welcomePhoto: !!welcomeSource });
   tg.setCommands(COMMANDS).catch((err) => log('warn', 'telegram.set_commands_failed', { error: err?.message }));
   let offset = 0;
   let backoffMs = 1_000;
@@ -104,8 +150,14 @@ async function main() {
     }
     for (const update of updates) {
       offset = update.update_id + 1;
-      if (!update.message) continue;
-      const p = process1(update.message).finally(() => inFlight.delete(p));
+      let p;
+      if (update.message) {
+        p = process1(update.message.chat, update.message.from, inputFromMessage(update.message));
+      } else if (update.callback_query?.message) {
+        const cq = update.callback_query;
+        p = process1(cq.message.chat, cq.from, { callback: String(cq.data ?? '') }, cq.id);
+      } else continue;
+      p = p.finally(() => inFlight.delete(p));
       inFlight.add(p);
     }
   }
