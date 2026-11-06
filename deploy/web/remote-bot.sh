@@ -17,7 +17,7 @@ prepare)
   [ "$(id -u)" = 0 ]
   [ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 22 ]
   systemctl is-active --quiet investor-bot || { echo 'Existing bot must be active before connecting'; exit 1; }
-  if [ -f "$unit" ] && ! grep -q '^# Managed by connect-trainer' "$unit"; then
+  if [ -f "$unit" ] && ! grep -qE '^# Managed by (connect-trainer|deploy-bot)' "$unit"; then
     echo 'Existing API service is not managed by this workflow; inspect before replacing'; exit 1
   fi
   if ss -lnt | grep -qE ':8080[[:space:]]' && ! systemctl is-active --quiet investor-api; then
