@@ -1,0 +1,37 @@
+[
+  {
+    "file": "01-angel.jpg",
+    "width": 1024,
+    "height": 1024,
+    "bytes": 482413,
+    "sha256": "2d0385542e61294abe246de81f0e67901e7fac47356e1417e88984e205e8c6c4"
+  },
+  {
+    "file": "02-corporate.jpg",
+    "width": 1024,
+    "height": 1024,
+    "bytes": 428254,
+    "sha256": "f7923bb6726bd23926954e1b813a8c1329238be939b2b9e6551f5ec77455f0af"
+  },
+  {
+    "file": "03-grant.jpg",
+    "width": 1024,
+    "height": 1024,
+    "bytes": 421468,
+    "sha256": "8104242c9aa669eab2ad944e4c1b90445c7cb463967af0b97cd1adfc9d3abbc2"
+  },
+  {
+    "file": "04-venture.jpg",
+    "width": 1024,
+    "height": 1024,
+    "bytes": 459225,
+    "sha256": "9ceb04c6e65bab981531a96b3aa6eb8bd624050e5368de0adab6b76987ed7ab6"
+  },
+  {
+    "file": "05-custom.jpg",
+    "width": 1024,
+    "height": 1024,
+    "bytes": 492668,
+    "sha256": "b5c5d558330b017f95cf479b4825246ef815648be73cc2bb9bbb092aa1d409a8"
+  }
+]
