@@ -30,6 +30,38 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
   const demo = createDemoEngine();
   const primary = engine || demo;
   const locks = new Map();
+  // Only active operations have an entry. Deletion invalidates their generation;
+  // no permanent tombstones or per-user state remain after the work settles.
+  const activeUsers = new Map();
+  async function withUserOperation(userId, fn) {
+    let state = activeUsers.get(userId);
+    if (!state) {
+      state = { generation: {}, pending: 0, writes: Promise.resolve() };
+      activeUsers.set(userId, state);
+    }
+    state.pending++;
+    const generation = state.generation;
+    const scope = {
+      state,
+      check() { if (state.generation !== generation) throw notFound(); },
+    };
+    try { return await fn(scope); }
+    finally {
+      if (--state.pending === 0) activeUsers.delete(userId);
+    }
+  }
+  function serializeWrite(state, fn) {
+    const pending = state.writes.then(fn);
+    state.writes = pending.catch(() => {});
+    return pending;
+  }
+  function saveForUser(scope, session) {
+    return serializeWrite(scope.state, async () => {
+      scope.check();
+      await store.save(session);
+      scope.check();
+    });
+  }
   const catalog = createPersonaCatalog(content);
   // Persisted content, rather than a mutable process-wide choice, owns the round.
   // Sessions created before selection existed continue with the configured default.
@@ -117,7 +149,11 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
 
   // ---- операции ------------------------------------------------------------------------------
 
-  async function start({ userId, pitch: rawPitch, previousSessionId = null, personaId }) {
+  async function start(input) {
+    return withUserOperation(input.userId, (scope) => startActive(input, scope));
+  }
+
+  async function startActive({ userId, pitch: rawPitch, previousSessionId = null, personaId }, scope) {
     if (personaId !== undefined && (typeof personaId !== 'string' || !personaId)) {
       throw new TrainerError(400, 'BAD_REQUEST', 'Выберите характер инвестора из списка.');
     }
@@ -140,7 +176,9 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
       if (!selectedContent) throw new TrainerError(400, 'BAD_REQUEST', 'Неизвестный характер инвестора. Выберите вариант из списка.');
     }
     const ctx = { content: selectedContent, pitch, round, previousQuestions, history: [] };
+    scope.check();
     const { data, demo: isDemo } = await run('start', ctx, (d) => d && ['pitch', 'empty', 'not_pitch'].includes(d.kind));
+    scope.check();
 
     if (data.kind === 'empty') {
       const missing = missingParts(authorText(pitch));
@@ -175,15 +213,22 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
       createdAt: now,
       updatedAt: now,
     };
-    await store.save(s);
+    await saveForUser(scope, s);
+    scope.check();
     onEvent('session_started', { sessionId: s.id });
     if (round > 1) onEvent('round_started', { sessionId: s.id, round });
     return { status: 201, body: stepView(s, { withFacts: true, notice }) };
   }
 
-  async function answer(sessionId, { userId, step, answer: rawAnswer }) {
+  async function answer(sessionId, input) {
+    return withUserOperation(input.userId, (scope) => answerActive(sessionId, input, scope));
+  }
+
+  async function answerActive(sessionId, { userId, step, answer: rawAnswer }, scope) {
     return withLock(String(sessionId), async () => {
+      scope.check();
       const s = await own(sessionId, userId);
+      scope.check();
       const content = sessionContent(s);
       const answered = s.replies.length;
       if (step === undefined || step === null) step = s.result ? TOTAL_STEPS + 1 : answered + 1;
@@ -201,7 +246,8 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
       s.answers.length = step;
       s.updatedAt = Date.now();
       s.contentSnapshot = content;
-      await store.save(s);
+      await saveForUser(scope, s);
+      scope.check();
 
       const source = [s.pitch, ...s.answers].join('\n');
       let body;
@@ -211,7 +257,9 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
           const prev = await store.get(s.previousSessionId);
           ctx.previousQuestions = prev ? prev.steps.map((q) => q.question) : [];
         }
+        scope.check();
         const { data, demo: isDemo } = await run('next', ctx, (d) => d && typeof d.question === 'string');
+        scope.check();
         const question = await questionOrDemo('next', ctx, data.question, source);
         const reactionText = limit(data.reaction, 200);
         const reaction = reactionText && numbersCovered(reactionText, source) && !badOutput(reactionText) ? reactionText : (await demo.next(ctx)).reaction;
@@ -222,6 +270,7 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
       } else {
         const ctx = { content, pitch: s.pitch, facts: s.facts, history: history(s, TOTAL_STEPS) };
         const { data, demo: isDemo } = await run('finish', ctx, (d) => d && Array.isArray(d.criteria) && d.criteria.length >= 10);
+        scope.check();
         const criteria = buildCriteria(data.criteria, content.weights, source);
         const reserve = reserveAdvice(criteria, content.weights, ctx.history);
         const advice = pickAdvice(data.advice, reserve, content.stopPhrases, reserve[0].basedOn);
@@ -241,7 +290,8 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
       }
       s.replies.push(body);
       s.updatedAt = Date.now();
-      await store.save(s);
+      await saveForUser(scope, s);
+      scope.check();
       onEvent('answered', { sessionId: s.id, step });
       if (s.result) onEvent('result_shown', { sessionId: s.id, total: s.result.total });
       return { status: 200, body };
@@ -256,8 +306,13 @@ export function createTrainer({ content, store, engine = null, fallback = true, 
   }
 
   async function deleteUser(userId) {
-    await store.deleteUser(userId);
-    return { status: 204, body: null };
+    return withUserOperation(userId, async ({ state }) => {
+      // Invalidate before waiting for a write already in progress. That write
+      // finishes first, then deletion removes it; older model calls cannot save.
+      state.generation = {};
+      await serializeWrite(state, () => store.deleteUser(userId));
+      return { status: 204, body: null };
+    });
   }
 
   return {

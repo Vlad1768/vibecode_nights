@@ -35,6 +35,19 @@ async function fixture(t, settings = {}) {
   return { base, upstream, request, start, clientTag };
 }
 
+test('new-tab rotation cannot reset network start budget; 429 includes retry guidance', async (t) => {
+  const f = await fixture(t, {abuseOptions:{startsPerHour:2}});
+  const start = () => f.request('/api/sessions', {method:'POST',body:{pitch},headers:{'X-Web-Client':randomUUID()}});
+  assert.equal((await start()).status,201);
+  assert.equal((await start()).status,201);
+  const denied=await start();
+  assert.equal(denied.status,429);
+  assert.equal(denied.body.error.code,'RATE_LIMITED');
+  assert.ok(Number(denied.response.headers.get('retry-after'))>0);
+  assert.ok(denied.body.error.retryAfterSec>0);
+  assert.equal((await f.request('/api/health')).status,200);
+});
+
 test('gateway uses shared core for all five questions, scoring, replay, recovery and second round', async (t) => {
   const f = await fixture(t);
   assert.deepEqual((await f.request('/api/health')).body, { ok: true, mode: 'demo', version: '1.0' });

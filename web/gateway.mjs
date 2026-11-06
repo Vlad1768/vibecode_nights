@@ -5,6 +5,8 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isIP } from 'node:net';
+import { AbuseLimit, createAbuseGuard, networkKey } from './abuse.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const COOKIE = 'investor_browser';
@@ -53,7 +55,7 @@ function requestIP(req) {
   const forwarded = req.headers['x-forwarded-for'];
   if (loopback(req.socket.remoteAddress) && typeof forwarded === 'string') {
     const value = forwarded.split(',').at(-1).trim();
-    if (/^[a-f0-9:.]{3,64}$/i.test(value)) return value;
+    if (isIP(value)) return value;
   }
   return req.socket.remoteAddress || 'unknown';
 }
@@ -62,6 +64,7 @@ function headers(res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
 }
 function json(res, status, data) {
@@ -89,12 +92,13 @@ async function bodyJSON(req) {
 export function createGateway({
   upstream = process.env.TRAINER_API_URL || 'http://127.0.0.1:8080',
   cookieSecret = process.env.WEB_COOKIE_SECRET || (process.env.NODE_ENV === 'production' ? '' : randomBytes(32).toString('hex')),
-  staticRoot = ROOT, fetchImpl = fetch, now = Date.now, timeoutMs = 50000, rateLimit = 60,
+  staticRoot = ROOT, fetchImpl = fetch, now = Date.now, timeoutMs = 50000, rateLimit = 60, abuseOptions = {},
 } = {}) {
   if (typeof cookieSecret !== 'string' || cookieSecret.length < 32) throw new Error('WEB_COOKIE_SECRET must contain at least 32 characters.');
   const upstreamURL = new URL(upstream);
   if (!['http:', 'https:'].includes(upstreamURL.protocol) || upstreamURL.username || upstreamURL.password || upstreamURL.search || upstreamURL.hash || upstreamURL.pathname !== '/') throw new Error('TRAINER_API_URL must be an origin.');
   const rates = new Map();
+  const abuse = createAbuseGuard({ now, ...abuseOptions });
   const sign = (value) => createHmac('sha256', cookieSecret).update(value).digest('base64url');
   function tabTag(req) {
     const tag = req.headers['x-web-client'];
@@ -118,13 +122,18 @@ export function createGateway({
   function charge(req) {
     const timestamp = now();
     for (const [key, rate] of rates) if (rate.expires <= timestamp) rates.delete(key);
-    const ip = requestIP(req);
+    const ip = networkKey(requestIP(req));
     let rate = rates.get(ip);
     if (!rate) {
       if (rates.size >= 10000) throw unavailable();
       rates.set(ip, rate = { count: 0, expires: timestamp + 60000 });
     }
-    if (++rate.count > rateLimit) throw new HttpError(429, 'RATE_LIMITED', 'Слишком много запросов. Подождите минуту.');
+    if (++rate.count > rateLimit) throw new AbuseLimit((rate.expires - timestamp) / 1000);
+  }
+  async function modelRequest(req, res, path, body, start = false) {
+    const release = abuse.acquire(requestIP(req), { start });
+    try { return await proxy(req, res, path, body); }
+    finally { release(); }
   }
   async function proxy(req, res, path, body) {
     const controller = new AbortController();
@@ -154,6 +163,7 @@ export function createGateway({
         const error = { code: data.error.code, message: data.error.message.slice(0, 1000) };
         if (Array.isArray(data.error.missing)) error.missing = data.error.missing.filter((v) => typeof v === 'string').slice(0, 10).map((v) => v.slice(0, 200));
         if (Number.isFinite(data.error.retryAfterSec)) error.retryAfterSec = data.error.retryAfterSec;
+        if (response.status === 429 && error.retryAfterSec > 0) res.setHeader('Retry-After', String(Math.ceil(error.retryAfterSec)));
         return json(res, response.status, { error });
       }
       return json(res, response.status, data);
@@ -186,7 +196,7 @@ export function createGateway({
       if (body.personaId !== undefined && (typeof body.personaId !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(body.personaId))) throw new HttpError(400, 'BAD_REQUEST', 'Выберите характер инвестора из списка.');
       userId ||= `web:${randomUUID()}`;
       remember(req, res, userId, tag);
-      return proxy(req, res, path, { userId, pitch: body.pitch, previousSessionId: body.previousSessionId ?? null, ...(body.personaId === undefined ? {} : { personaId: body.personaId }) });
+      return modelRequest(req, res, path, { userId, pitch: body.pitch, previousSessionId: body.previousSessionId ?? null, ...(body.personaId === undefined ? {} : { personaId: body.personaId }) }, true);
     }
     const match = path.match(/^\/api\/sessions\/([^/]+)(\/answers)?$/);
     if (match && UUID.test(match[1]) && ((req.method === 'GET' && !match[2]) || (req.method === 'POST' && match[2]))) {
@@ -196,7 +206,7 @@ export function createGateway({
       const body = await bodyJSON(req);
       if (!Number.isInteger(body.step) || body.step < 1 || body.step > 5) throw new HttpError(400, 'BAD_REQUEST', 'Укажите номер вопроса от 1 до 5.');
       if (typeof body.answer !== 'string' || body.answer.length > 2000) throw new HttpError(422, 'ANSWER_TOO_LONG', 'Ответ должен содержать не больше 2000 символов.');
-      return proxy(req, res, path, { userId, step: body.step, answer: body.answer });
+      return modelRequest(req, res, path, { userId, step: body.step, answer: body.answer });
     }
     if (req.method === 'DELETE' && path === '/api/users/me') {
       if (!userId) return json(res, 204);
@@ -207,6 +217,10 @@ export function createGateway({
   const server = createServer((req, res) => {
     handle(req, res).catch((error) => {
       if (res.headersSent) return res.destroy();
+      if (error instanceof AbuseLimit) {
+        res.setHeader('Retry-After', String(error.retryAfterSec));
+        return json(res, 429, { error: { code: 'RATE_LIMITED', message: error.message, retryAfterSec: error.retryAfterSec } });
+      }
       const safe = error instanceof HttpError ? error : unavailable();
       json(res, safe.status, { error: { code: safe.code, message: safe.message } });
     });
