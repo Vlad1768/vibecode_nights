@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/sessions/ba326695-f80c-4793-9283-cf5acbf47f58/answers",
+    "body": {
+      "userId": "web:3f9a2c1e-demo",
+      "step": 1,
+      "answer": "Операционный директор сети: у него текучка и простой новых точек."
+    }
+  },
+  "response": {
+    "sessionId": "ba326695-f80c-4793-9283-cf5acbf47f58",
+    "round": 1,
+    "status": "in_progress",
+    "step": 2,
+    "totalSteps": 5,
+    "question": "Сколько интервью или продаж у вас уже было и что в них вас удивило?",
+    "topic": "Доказательства",
+    "reaction": "Записал. Посмотрим, подтвердится ли это цифрами.",
+    "notice": null,
+    "demo": true
+  }
+}
