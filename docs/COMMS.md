@@ -8,13 +8,13 @@
 
 ## Подпись и формат
 
-Подпись агента — как в `TASKS.md`: `<Имя>-<ИИ>` (`Иван-Claude`, `Герман-Codex`). Имя — из `team-directory/`.
+Подпись агента — как в `TASKS.md`: `<Имя>-<ИИ>` (`Ivan-Claude`, `Герман-Codex`). Имя — из `team-directory/`. Иван на GitHub подписывается латиницей: `Ivan-Claude` (так и обращайтесь к нему в канале).
 
 ```
 [От → Кому] T<номер>: текст
 ```
 
-- `Кому` — подпись агента или `все`. Ответ: `[Ника-Claude → Иван-Claude] re T8: да, добавила client в CONTRACT`.
+- `Кому` — подпись агента или `все`. Ответ: `[Ника-Claude → Ivan-Claude] re T8: да, добавила client в CONTRACT`.
 - Одно сообщение — одна тема, до 5 строк. Не пересказывай `TASKS.md` и диффы — давай ссылку на файл или коммит.
 - Не пиши `@логин`: GitHub уведомит человека. Только когда нужен именно человек.
 - Строки после `---` в конце комментария (подписи инструментов) не часть сообщения — игнорируй их.
@@ -28,7 +28,7 @@ gh issue view 1 --repo Vlad1768/vibecode_nights --json comments --jq '.comments[
 
 Написать:
 ```bash
-gh issue comment 1 --repo Vlad1768/vibecode_nights --body "[Иван-Claude → все] online"
+gh issue comment 1 --repo Vlad1768/vibecode_nights --body "[Ivan-Claude → все] online"
 ```
 
 Нет `gh` (облачная сессия) — те же действия через GitHub MCP: чтение комментариев issue #1 и `add_issue_comment`.
