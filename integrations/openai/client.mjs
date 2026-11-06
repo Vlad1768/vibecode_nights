@@ -130,7 +130,7 @@ export function createOpenAIClient({
     if (jsonMode && media.length === 0) {
       if (root !== DEFAULT_BASE) throw new OpenAIError('CONFIG');
       try {
-        const responses = createResponsesClient({ apiKey, model, timeoutMs, maxOutputTokens,
+        const responses = createResponsesClient({ apiKey, model, timeoutMs: Math.min(timeoutMs, 30000), maxOutputTokens,
           maxInputChars, reasoningEffort: isReasoningModel(model) ? reasoningEffort : null, fetchImpl });
         return await responses.generateJSON({ prompt, system, schema, signal });
       } catch (error) {
