@@ -68,6 +68,30 @@ jobs:
           python3 -c "import json;r=json.load(open('me.json'))['result'];print('Бот: @'+r['username'])"
           rm -f me.json
 
+      - name: Какие ключи заданы в Actions (только да/нет, без значений)
+        env:
+          S_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          S_OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          S_CHATGPT_API_KEY: ${{ secrets.CHATGPT_API_KEY }}
+          S_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          S_GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          S_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          S_BOT_TELEGRAM_TOKEN: ${{ secrets.BOT_TELEGRAM_TOKEN }}
+          S_BOT_SERVER_PASSWORD: ${{ secrets.BOT_SERVER_PASSWORD }}
+          S_SITE_SERVER_PASSWORD: ${{ secrets.SITE_SERVER_PASSWORD }}
+          V_OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          V_OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+          V_GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          V_TRAINER_API_URL: ${{ vars.TRAINER_API_URL }}
+          V_SITE_SERVER_HOST: ${{ vars.SITE_SERVER_HOST }}
+        run: |
+          for n in OPENAI_API_KEY OPENAI_KEY CHATGPT_API_KEY GEMINI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY BOT_TELEGRAM_TOKEN BOT_SERVER_PASSWORD SITE_SERVER_PASSWORD; do
+            v="S_$n"; [ -n "${!v}" ] && echo "Secret $n: задан" || echo "Secret $n: нет"
+          done
+          for n in OPENAI_MODEL OPENAI_BASE_URL GEMINI_MODEL TRAINER_API_URL SITE_SERVER_HOST; do
+            v="V_$n"; echo "Variable $n: ${!v:-нет}"
+          done
+
       - name: SSH-клиент и ключ хоста
         run: |
           sudo apt-get install -y -qq sshpass >/dev/null
