@@ -213,6 +213,59 @@ test('a lost successful answer is reconciled by GET after reload without sending
   assert.equal(browser.calls.filter((call) => call.path.endsWith('/answers')).length, 1);
 });
 
+test('pending indicator follows the active form and clears after pitch and final result', { timeout: 5000 }, async (t) => {
+  const browser = await fixture(t);
+  const app = boot(browser);
+  await app.idle();
+  const loading = app.elements.get('request-loading');
+  const status = app.elements.get('request-loading-status');
+  assert.ok(loading && status, 'the page exposes a pending indicator and its status');
+
+  function holdPost(path) {
+    let release, entered;
+    const arrived = new Promise((resolve) => { entered = resolve; });
+    const held = new Promise((resolve) => { release = resolve; });
+    t.after(() => release());
+    browser.intercept = async (call, request) => {
+      if (call.method === 'POST' && call.path === path) { entered(); await held; }
+      return request();
+    };
+    return { arrived, release };
+  }
+
+  app.elements.get('pitch-input').value = EXAMPLE_PITCH;
+  const pitchRequest = holdPost('/api/sessions');
+  const pitched = app.state.pitch();
+  await pitchRequest.arrived;
+  assert.equal(loading.hidden, false, 'waiting for the first question is visible');
+  assert.ok(status.textContent.trim(), 'pending state has readable status text');
+  assert.ok(app.elements.get('pitch-form').children.includes(loading));
+  assert.equal(app.elements.get('submit-pitch-btn').disabled, true);
+  pitchRequest.release();
+  await pitched;
+  assert.equal(app.state.state.stage, 'qa');
+  assert.equal(loading.hidden, true, 'the accepted pitch leaves no stale indicator');
+  assert.equal(app.elements.get('submit-answer-btn').disabled, false);
+
+  browser.intercept = null;
+  for (let step = 1; step < 5; step++) {
+    app.elements.get('answer-input').value = `Ответ ${step}: провели 12 интервью, получили 3 оплаты.`;
+    await app.state.answer();
+  }
+  const finalRequest = holdPost(`/api/sessions/${app.state.state.sessionId}/answers`);
+  app.elements.get('answer-input').value = 'Проверим повторные оплаты у трёх клиентов в течение недели.';
+  const answered = app.state.answer();
+  await finalRequest.arrived;
+  assert.equal(loading.hidden, false, 'waiting for the final evaluation is visible');
+  assert.ok(status.textContent.trim());
+  assert.ok(app.elements.get('answer-form').children.includes(loading));
+  assert.equal(app.elements.get('submit-answer-btn').disabled, true);
+  finalRequest.release();
+  await answered;
+  assert.equal(app.state.state.stage, 'result');
+  assert.equal(loading.hidden, true, 'the result replaces the pending indicator');
+});
+
 test('cancel into explicit demo ignores the stale response and GET recovers when leaving demo', async (t) => {
   const browser = await fixture(t);
   const app = boot(browser);
@@ -230,11 +283,15 @@ test('cancel into explicit demo ignores the stale response and GET recovers when
   app.elements.get('answer-input').value = 'Опросили 12 студентов, готовы проверить готовность платить.';
   const sent = app.state.answer();
   await arrived;
+  assert.equal(app.elements.get('request-loading').hidden, false);
   app.state.demo();
   assert.equal(app.state.state.mode, 'demo');
+  assert.equal(app.elements.get('request-loading').hidden, true, 'cancelling hides the pending indicator immediately');
+  assert.equal(app.elements.get('submit-answer-btn').disabled, false);
   release();
   await sent;
   assert.equal(app.state.state.sessionId, 'demo-session');
+  assert.equal(app.elements.get('request-loading').hidden, true, 'a stale response cannot reopen the indicator');
   browser.intercept = null;
   app.state.exitDemo();
   await app.idle();
@@ -253,15 +310,26 @@ test('503 preserves the answer without substituting demo; unknown IDs and damage
   await app.idle();
   app.elements.get('pitch-input').value = EXAMPLE_PITCH;
   await app.state.pitch();
-  browser.intercept = (call, request) => call.path.endsWith('/answers')
-    ? Promise.resolve(new Response(JSON.stringify({ error: { code: 'AI_UNAVAILABLE', message: 'Модель недоступна.' } }), { status: 503 }))
-    : request();
+  let releaseFailure;
+  const heldFailure = new Promise((resolve) => { releaseFailure = resolve; });
+  t.after(() => releaseFailure());
+  browser.intercept = async (call, request) => {
+    if (!call.path.endsWith('/answers')) return request();
+    await heldFailure;
+    return new Response(JSON.stringify({ error: { code: 'AI_UNAVAILABLE', message: 'Модель недоступна.' } }), { status: 503 });
+  };
   app.elements.get('answer-input').value = 'Черновик, который нельзя потерять при отказе модели.';
-  await app.state.answer();
+  const failed = app.state.answer();
+  assert.equal(app.elements.get('request-loading').hidden, false);
+  assert.equal(app.elements.get('submit-answer-btn').disabled, true);
+  releaseFailure();
+  await failed;
   assert.equal(app.state.state.mode, 'live');
   assert.equal(app.state.state.step, 1);
   assert.match(app.state.state.answerDraft, /нельзя потерять/);
   assert.equal(app.elements.get('error-banner').hidden, false);
+  assert.equal(app.elements.get('request-loading').hidden, true, 'failure clears the pending indicator');
+  assert.equal(app.elements.get('submit-answer-btn').disabled, false, 'the failed answer can be retried');
   browser.intercept = null;
   const saved = JSON.parse(app.storage.get(storageKey));
   saved.sessionId = randomUUID();

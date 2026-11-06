@@ -9,7 +9,9 @@
   <link rel="stylesheet" href="./motion.css">
   <link rel="stylesheet" href="./investor-art.css">
   <link rel="stylesheet" href="./entrance.css">
-  <link rel="preload" href="./assets/investor-fight.jpg" as="image">
+  <link rel="stylesheet" href="./fight-animation.css">
+  <link rel="preload" href="./assets/loading/face.png" as="image">
+  <link rel="preload" href="./assets/loading/title.png" as="image">
   <script type="module" src="./entrance.mjs"></script>
   <script type="module" src="./app.mjs"></script>
   <script type="module" src="./motion.mjs"></script>
@@ -147,6 +149,15 @@
       <p id="round-persona" class="round-persona" hidden></p>
 
       <!-- ЭТАП 1: ВВОД ПИТЧА -->
+      <div id="request-loading" class="request-loading" hidden>
+        <div id="request-loading-art" class="request-loading__art" aria-hidden="true"></div>
+        <div class="request-loading__copy">
+          <p id="request-loading-status" role="status" aria-live="polite" aria-atomic="true">Инвестор готовит ответ…</p>
+          <p class="request-loading__hint">Ваш текст сохранён. Ответ появится, как только будет готов.</p>
+          <button id="request-loading-pause" class="btn btn--secondary btn--sm" type="button" aria-pressed="true" aria-label="Анимация ожидания">Пауза</button>
+        </div>
+      </div>
+
       <section id="view-pitch" class="card stage-panel" aria-labelledby="pitch-heading">
         <div class="stage-panel__header">
           <div>

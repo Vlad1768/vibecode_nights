@@ -25,6 +25,10 @@ const STATIC = new Map([
   ['/assets/investors/green-coat-investor.jpg', ['assets/investors/green-coat-investor.jpg', 'image/jpeg']],
   ['/entrance.css', ['entrance.css', 'text/css; charset=utf-8']],
   ['/entrance.mjs', ['entrance.mjs', 'text/javascript; charset=utf-8']],
+  ['/fight-animation.mjs', ['fight-animation.mjs', 'text/javascript; charset=utf-8']],
+  ['/fight-animation.css', ['fight-animation.css', 'text/css; charset=utf-8']],
+  ['/assets/loading/face.png', ['assets/loading/face.png', 'image/png']],
+  ['/assets/loading/title.png', ['assets/loading/title.png', 'image/png']],
   ['/assets/investor-fight.jpg', ['assets/investor-fight.jpg', 'image/jpeg']],
   ...['angel', 'corporate', 'grant', 'venture', 'hype-alchemist'].map((id) => [
     `/assets/personas/${id}.jpg`, [`assets/personas/${id}.jpg`, 'image/jpeg'],

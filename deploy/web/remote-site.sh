@@ -8,6 +8,7 @@ public_dir=/var/www/fightinvestor
 public_files=(
   index.html styles.css app.mjs demo.mjs motion.css motion.mjs
   entrance.css entrance.mjs assets/investor-fight.jpg
+  fight-animation.css fight-animation.mjs assets/loading/face.png assets/loading/title.png
   investor-art.css investor-art.mjs
   assets/investors/burgundy-investor.jpg
   assets/investors/corporate-investor.jpg

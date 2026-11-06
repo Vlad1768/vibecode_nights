@@ -528,6 +528,16 @@ function hideError() {
 
 function setSubmittingState(busy, labelText = '') {
   isSubmitting = busy;
+  const loading = document.getElementById('request-loading');
+  const loadingStatus = document.getElementById('request-loading-status');
+  if (loading) {
+    loading.hidden = !busy;
+    if (busy) {
+      (state.stage === 'result' ? dom.viewResult : state.stage === 'qa' ? dom.answerForm : dom.pitchForm).append(loading);
+      if (loadingStatus) loadingStatus.textContent = labelText || 'Инвестор готовит ответ…';
+      loading.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+    }
+  }
   renderPersona();
   dom.submitPitchBtn.disabled = busy;
   dom.submitAnswerBtn.disabled = busy;

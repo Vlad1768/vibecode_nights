@@ -176,6 +176,10 @@ test('private files are not served; public assets have correct MIME', async (t) 
     ['/assets/investors/green-coat-investor.jpg', 'image/jpeg'],
     ['/entrance.css', 'text/css'], ['/entrance.mjs', 'text/javascript'],
     ['/assets/investor-fight.jpg', 'image/jpeg'],
+    ['/fight-animation.mjs', 'text/javascript'],
+    ['/fight-animation.css', 'text/css'],
+    ['/assets/loading/face.png', 'image/png'],
+    ['/assets/loading/title.png', 'image/png'],
   ]) {
     const response = await fetch(f.base + path);
     assert.equal(response.status, 200, path);

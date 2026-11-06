@@ -1,83 +1,15 @@
-/** Short, optional greeting. The trainer never waits for this animation or an API. */
-const SHOW_MS = 2200;
-const FADE_MS = 380;
+import { mountFight } from './fight-animation.mjs';
+
+/** Optional greeting: API calls and the usable page never wait for this animation. */
+const SHOW_MS = 2700;
+const FADE_MS = 280;
 let mounted = false;
-
-function polygon(ctx, points, color) {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
-  ctx.closePath();
-  ctx.fill();
-}
-
-function paintLaugh(ctx, image, elapsed) {
-  ctx.clearRect(0, 0, 1024, 1024);
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(512, 512, 512, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.drawImage(image, 0, 0, 1024, 1024);
-
-  if (elapsed > 160 && elapsed < 2050) {
-    // Native pixel shapes animate the supplied artwork; the original stays intact.
-    ctx.fillStyle = '#eaa073';
-    ctx.fillRect(416, 534, 69, 30);
-    ctx.fillRect(544, 534, 69, 30);
-    for (const x of [419, 547]) {
-      polygon(ctx, [[x, 550], [x + 9, 550], [x + 9, 541], [x + 20, 541],
-        [x + 20, 535], [x + 42, 535], [x + 42, 541], [x + 53, 541],
-        [x + 53, 550], [x + 62, 550], [x + 62, 559], [x + 45, 559],
-        [x + 45, 550], [x + 17, 550], [x + 17, 559], [x, 559]], '#482b32');
-    }
-
-    const beat = [0, 12, 5, 16][Math.floor((elapsed - 160) / 145) % 4];
-    ctx.fillStyle = '#efa475';
-    ctx.fillRect(446, 646, 132, 55);
-    polygon(ctx, [[451, 646], [470, 646], [470, 652], [554, 652],
-      [554, 646], [574, 646], [574, 669 + beat], [565, 669 + beat],
-      [565, 683 + beat], [548, 683 + beat], [548, 691 + beat],
-      [478, 691 + beat], [478, 683 + beat], [460, 683 + beat],
-      [460, 669 + beat], [451, 669 + beat]], '#64383b');
-    ctx.fillStyle = '#291e2b';
-    ctx.fillRect(462, 662, 101, 18 + beat);
-    ctx.fillRect(478, 675, 70, 9 + beat);
-    ctx.fillStyle = '#fff1d9';
-    ctx.fillRect(464, 654, 96, 12);
-    ctx.fillStyle = '#dfd5c0';
-    ctx.fillRect(475, 666, 75, 4);
-    ctx.fillStyle = '#d66b63';
-    ctx.fillRect(487, 677 + beat, 50, 9);
-    ctx.fillStyle = '#ec9181';
-    ctx.fillRect(497, 677 + beat, 30, 4);
-  }
-  ctx.restore();
-}
 
 export async function mountEntrance() {
   if (mounted || typeof document === 'undefined') return;
   mounted = true;
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   if (reduced.matches || document.hidden || performance.getEntriesByType('navigation')[0]?.type === 'back_forward') return;
-
-  // A slow/missing image must never put a loading screen over an already usable page.
-  const pending = new AbortController();
-  let interrupted = false;
-  const interrupt = () => { interrupted = true; };
-  for (const type of ['pointerdown', 'keydown', 'wheel', 'pagehide']) {
-    window.addEventListener(type, interrupt, { once: true, signal: pending.signal });
-  }
-  const image = new Image();
-  const ready = await new Promise((resolve) => {
-    let timer = 0;
-    const settle = (value) => { window.clearTimeout(timer); image.onload = image.onerror = null; resolve(value); };
-    timer = window.setTimeout(() => settle(false), 1200);
-    image.onload = () => settle(true);
-    image.onerror = () => settle(false);
-    image.src = new URL('./assets/investor-fight.jpg', import.meta.url).href;
-  });
-  pending.abort();
-  if (!ready || interrupted || reduced.matches || document.hidden) return;
 
   const overlay = document.createElement('div');
   overlay.className = 'entrance';
@@ -88,29 +20,29 @@ export async function mountEntrance() {
     <span class="entrance__corner" aria-hidden="true">ЗЛОЙ ИНВЕСТОР</span>
     <button class="entrance__skip" type="button">Пропустить <span aria-hidden="true">↗</span></button>
     <div class="entrance__stage">
-      <div class="entrance__art" aria-hidden="true">
-        <span class="entrance__ha entrance__ha--one">ХА!</span>
-        <canvas class="entrance__badge" width="1024" height="1024"></canvas>
-        <span class="entrance__ha entrance__ha--two">ХА-ХА!</span>
-        <span class="entrance__spark entrance__spark--one">+</span>
-        <span class="entrance__spark entrance__spark--two">+</span>
-      </div>
+      <div class="entrance__art" aria-hidden="true"></div>
       <p class="entrance__line">Смех смехом.<br><strong>А питч готов?</strong></p>
-      <div class="entrance__loading" aria-hidden="true"><span></span></div>
-      <p class="entrance__caption">Сейчас начнём</p>
     </div>
     <span class="entrance__footer" aria-hidden="true">5 ВОПРОСОВ · ТВОЙ ПИТЧ</span>`;
-  const canvas = overlay.querySelector('canvas');
-  let ctx;
-  try { ctx = canvas.getContext('2d'); } catch { return; }
-  if (!ctx) return;
-  ctx.imageSmoothingEnabled = false;
-  paintLaugh(ctx, image, 0);
+  const animation = mountFight(overlay.querySelector('.entrance__art'), { startDelayMs: 150, paused: true });
+  const pending = new AbortController();
+  let interrupted = false;
+  const interrupt = () => { interrupted = true; };
+  for (const type of ['pointerdown', 'keydown', 'wheel', 'pagehide']) {
+    window.addEventListener(type, interrupt, { once: true, signal: pending.signal });
+  }
+  let loadTimer;
+  const ready = await Promise.race([
+    animation.ready,
+    new Promise((resolve) => { loadTimer = window.setTimeout(() => resolve(false), 1200); }),
+  ]);
+  window.clearTimeout(loadTimer);
+  pending.abort();
+  if (!ready || interrupted || reduced.matches || document.hidden) { animation.destroy(); return; }
 
   const previousFocus = document.activeElement;
   const savedInert = [];
   const events = new AbortController();
-  let frame = 0;
   let durationTimer = 0;
   let fadeTimer = 0;
   let watchdog = 0;
@@ -119,7 +51,7 @@ export async function mountEntrance() {
   const cleanup = () => {
     if (removed) return;
     removed = true;
-    window.cancelAnimationFrame(frame);
+    animation.destroy();
     for (const timer of [durationTimer, fadeTimer, watchdog]) window.clearTimeout(timer);
     events.abort();
     for (const [element, inert] of savedInert) element.inert = inert;
@@ -131,12 +63,12 @@ export async function mountEntrance() {
     if (immediate) { cleanup(); return; }
     if (closing || removed) return;
     closing = true;
-    window.cancelAnimationFrame(frame);
+    animation.pause();
     overlay.classList.add('entrance--leaving');
     fadeTimer = window.setTimeout(cleanup, FADE_MS);
   };
 
-  // Install the escape hatches before changing focus, scroll, or interactivity.
+  // Escape hatches are installed before changing focus or interactivity.
   watchdog = window.setTimeout(cleanup, SHOW_MS + FADE_MS + 600);
   const on = (target, type, listener) => target.addEventListener(type, listener, { signal: events.signal });
   on(overlay.querySelector('button'), 'click', () => finish(true));
@@ -151,18 +83,73 @@ export async function mountEntrance() {
     document.body.append(overlay);
     document.documentElement.classList.add('entrance-active');
     overlay.querySelector('button').focus({ preventScroll: true });
+    animation.play();
     durationTimer = window.setTimeout(() => finish(), SHOW_MS);
-    const start = performance.now();
-    let last = 0;
-    const tick = (now) => {
-      if (closing || removed) return;
-      try {
-        if (now - last >= 1000 / 24) { paintLaugh(ctx, image, now - start); last = now; }
-        frame = window.requestAnimationFrame(tick);
-      } catch { cleanup(); }
-    };
-    frame = window.requestAnimationFrame(tick);
   } catch { cleanup(); }
 }
 
-if (typeof document !== 'undefined') mountEntrance().catch(() => { /* The page is available without the greeting. */ });
+/** Observe the real request lifecycle; this controller never delays a response. */
+export function mountRequestLoading() {
+  const panel = document.getElementById('request-loading');
+  const art = document.getElementById('request-loading-art');
+  const button = document.getElementById('request-loading-pause');
+  if (!panel || !art || !button) return () => {};
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let animation = null;
+  let paused = false;
+  let artworkReady = false;
+  const updateButton = () => {
+    button.hidden = !artworkReady || reduced.matches;
+    button.textContent = paused ? 'Продолжить анимацию' : 'Пауза анимации';
+    button.setAttribute('aria-pressed', String(paused));
+    button.setAttribute('aria-label', 'Приостановить анимацию ожидания');
+  };
+  const sync = () => {
+    if (panel.hidden) {
+      animation?.destroy();
+      animation = null;
+      artworkReady = false;
+      return;
+    }
+    if (animation) return;
+    paused = false;
+    artworkReady = false;
+    art.hidden = false;
+    updateButton();
+    const current = mountFight(art, { startDelayMs: 100 });
+    animation = current;
+    current.ready.then((ok) => {
+      if (animation !== current) return;
+      artworkReady = ok;
+      art.hidden = !ok;
+      updateButton();
+    });
+  };
+  const toggle = () => {
+    paused = !paused;
+    if (paused) animation?.pause(); else animation?.play();
+    updateButton();
+  };
+  const observer = new MutationObserver(sync);
+  observer.observe(panel, { attributes: true, attributeFilter: ['hidden'] });
+  button.addEventListener('click', toggle);
+  reduced.addEventListener('change', updateButton);
+  const cleanup = () => {
+    observer.disconnect();
+    animation?.destroy();
+    animation = null;
+    button.removeEventListener('click', toggle);
+    reduced.removeEventListener('change', updateButton);
+    window.removeEventListener('pagehide', onPageHide);
+  };
+  // BFCache keeps the existing document and its request controller alive.
+  const onPageHide = (event) => { if (!event.persisted) cleanup(); };
+  window.addEventListener('pagehide', onPageHide);
+  sync();
+  return cleanup;
+}
+
+if (typeof document !== 'undefined') {
+  mountRequestLoading();
+  mountEntrance().catch(() => { /* The page stays available without the greeting. */ });
+}
