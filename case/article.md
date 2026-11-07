@@ -2,7 +2,7 @@
 
 *Студенты, которые защищают стартап как диплом, репетируют перед одногруппниками и слышат «всё круто». На предзащите их спрашивают, сколько интервью с клиентами они провели, и всё рушится. На хакатоне VIBECODE NIGHTS Стартап Клуба мы впятером и с ИИ-агентами за вечер собрали тренажёр, который задаёт эти вопросы заранее.*
 
-**Что в кейсе:** работающий сайт [fightinvestor.ru](https://fightinvestor.ru) и Telegram-бот [@fightinvestor_bot](https://t.me/fightinvestor_bot) над одним API.
+**Что в кейсе:** сайт и Telegram-бот [@fightinvestor_bot](https://t.me/fightinvestor_bot) над одним API. На хакатоне сайт работал на fightinvestor.ru, сейчас посмотреть его можно на [zloyinvestor.netlify.app](https://zloyinvestor.netlify.app). Это демо: дизайн и готовый пример раунда, без живой прожарки своего питча (для неё нужен сервер с API и моделью). Скриншоты ниже сняты с живого сайта.
 **Формат:** командный хакатон, кейс от организаторов. Проект настоящий, не учебная модель: код, решения и ошибки ниже реальные.
 **Команда:** пять человек (Влад, Герман, Ника, Иван, Ратмир), у каждого свой ИИ-агент: Claude Code или Codex.
 **Срок:** подготовка схемы работы 3–5 ноября, сам продукт 6 ноября за один вечер.
@@ -125,4 +125,4 @@
 
 ## Связаться
 
-Если нужен ИИ-сервис, бот или сайт, который не выдумывает и не ломается от странного ввода, напишите: Telegram @VladKozeev, VK «Влад Козеев». Бот: [@fightinvestor_bot](https://t.me/fightinvestor_bot), код: [github.com/Vlad1768/vibecode_nights](https://github.com/Vlad1768/vibecode_nights).
+Если нужен ИИ-сервис, бот или сайт, который не выдумывает и не ломается от странного ввода, напишите: Telegram @VladKozeev, VK «Влад Козеев». Демо сайта: [zloyinvestor.netlify.app](https://zloyinvestor.netlify.app), бот: [@fightinvestor_bot](https://t.me/fightinvestor_bot), код: [github.com/Vlad1768/vibecode_nights](https://github.com/Vlad1768/vibecode_nights).
